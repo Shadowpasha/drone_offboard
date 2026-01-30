@@ -1,0 +1,1 @@
+/home/anas/drone_sitl_ws/src/px4_ros_com/test/__init__.py

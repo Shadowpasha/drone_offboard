@@ -1,0 +1,21 @@
+[1.178s] Invoking command in '/home/anas/drone_sitl_ws/build/px4_offboard': AMENT_PREFIX_PATH=/home/anas/drone_sitl_ws/install/px4_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/anas/drone_sitl_ws/install/px4_msgs:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/anas/drone_sitl_ws/install/px4_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/anas/drone_sitl_ws/build/px4_offboard/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages:/home/anas/drone_sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/px4_offboard/build --no-deps symlink_data
+[1.561s] running develop
+[1.857s] running egg_info
+[1.877s] writing px4_offboard.egg-info/PKG-INFO
+[1.877s] writing dependency_links to px4_offboard.egg-info/dependency_links.txt
+[1.877s] writing entry points to px4_offboard.egg-info/entry_points.txt
+[1.878s] writing requirements to px4_offboard.egg-info/requires.txt
+[1.878s] writing top-level names to px4_offboard.egg-info/top_level.txt
+[1.923s] reading manifest file 'px4_offboard.egg-info/SOURCES.txt'
+[1.925s] writing manifest file 'px4_offboard.egg-info/SOURCES.txt'
+[1.959s] running build_ext
+[1.959s] Creating /home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages/px4-offboard.egg-link (link to .)
+[1.960s] Installing forward script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+[1.960s] Installing offboard_control script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+[1.960s] Installing square script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+[1.960s] Installing take_off_land script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+[1.960s] Installing visualizer script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+[1.961s] 
+[1.961s] Installed /home/anas/drone_sitl_ws/build/px4_offboard
+[1.961s] running symlink_data
+[2.003s] Invoked command in '/home/anas/drone_sitl_ws/build/px4_offboard' returned '0': AMENT_PREFIX_PATH=/home/anas/drone_sitl_ws/install/px4_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/anas/drone_sitl_ws/install/px4_msgs:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/anas/drone_sitl_ws/install/px4_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/anas/drone_sitl_ws/build/px4_offboard/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages:/home/anas/drone_sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/px4_offboard/build --no-deps symlink_data

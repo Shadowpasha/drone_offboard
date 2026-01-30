@@ -1,0 +1,15 @@
+running develop
+running egg_info
+writing f4_project.egg-info/PKG-INFO
+writing dependency_links to f4_project.egg-info/dependency_links.txt
+writing entry points to f4_project.egg-info/entry_points.txt
+writing requirements to f4_project.egg-info/requires.txt
+writing top-level names to f4_project.egg-info/top_level.txt
+reading manifest file 'f4_project.egg-info/SOURCES.txt'
+writing manifest file 'f4_project.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/anas/drone_sitl_ws/install/f4_project/lib/python3.10/site-packages/f4-project.egg-link (link to .)
+Installing reset_odom script to /home/anas/drone_sitl_ws/install/f4_project/lib/f4_project
+
+Installed /home/anas/drone_sitl_ws/build/f4_project
+running symlink_data

@@ -1,0 +1,17 @@
+running develop
+running egg_info
+writing wld_net.egg-info/PKG-INFO
+writing dependency_links to wld_net.egg-info/dependency_links.txt
+writing entry points to wld_net.egg-info/entry_points.txt
+writing requirements to wld_net.egg-info/requires.txt
+writing top-level names to wld_net.egg-info/top_level.txt
+reading manifest file 'wld_net.egg-info/SOURCES.txt'
+writing manifest file 'wld_net.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/anas/drone_sitl_ws/install/wld_net/lib/python3.10/site-packages/wld-net.egg-link (link to .)
+Installing dehazing_node script to /home/anas/drone_sitl_ws/install/wld_net/bin
+
+Installed /home/anas/drone_sitl_ws/build/wld_net
+running symlink_data
+symbolically linking /home/anas/drone_sitl_ws/build/wld_net/resource/wld_net -> /home/anas/drone_sitl_ws/install/wld_net/share/ament_index/resource_index/packages
+symbolically linking /home/anas/drone_sitl_ws/build/wld_net/package.xml -> /home/anas/drone_sitl_ws/install/wld_net/share/wld_net

@@ -1,0 +1,19 @@
+running develop
+running egg_info
+writing px4_offboard.egg-info/PKG-INFO
+writing dependency_links to px4_offboard.egg-info/dependency_links.txt
+writing entry points to px4_offboard.egg-info/entry_points.txt
+writing requirements to px4_offboard.egg-info/requires.txt
+writing top-level names to px4_offboard.egg-info/top_level.txt
+reading manifest file 'px4_offboard.egg-info/SOURCES.txt'
+writing manifest file 'px4_offboard.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages/px4-offboard.egg-link (link to .)
+Installing forward script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+Installing offboard_control script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+Installing square script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+Installing take_off_land script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+Installing visualizer script to /home/anas/drone_sitl_ws/install/px4_offboard/lib/px4_offboard
+
+Installed /home/anas/drone_sitl_ws/build/px4_offboard
+running symlink_data

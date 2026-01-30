@@ -1,0 +1,21 @@
+[1.051s] Invoking command in '/home/anas/drone_sitl_ws/build/wld_net': PYTHONPATH=/home/anas/drone_sitl_ws/build/wld_net/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/wld_net/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/wld_net/build --no-deps symlink_data
+[1.200s] /home/anas/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[1.200s]   warnings.warn(msg)
+[1.411s] running develop
+[1.703s] running egg_info
+[1.723s] writing wld_net.egg-info/PKG-INFO
+[1.724s] writing dependency_links to wld_net.egg-info/dependency_links.txt
+[1.724s] writing entry points to wld_net.egg-info/entry_points.txt
+[1.725s] writing requirements to wld_net.egg-info/requires.txt
+[1.725s] writing top-level names to wld_net.egg-info/top_level.txt
+[1.767s] reading manifest file 'wld_net.egg-info/SOURCES.txt'
+[1.769s] writing manifest file 'wld_net.egg-info/SOURCES.txt'
+[1.807s] running build_ext
+[1.808s] Creating /home/anas/drone_sitl_ws/install/wld_net/lib/python3.10/site-packages/wld-net.egg-link (link to .)
+[1.809s] Installing dehazing_node script to /home/anas/drone_sitl_ws/install/wld_net/bin
+[1.809s] Installing video_dehazing_node script to /home/anas/drone_sitl_ws/install/wld_net/bin
+[1.809s] Installing webcam_dehazing_node script to /home/anas/drone_sitl_ws/install/wld_net/bin
+[1.809s] 
+[1.809s] Installed /home/anas/drone_sitl_ws/build/wld_net
+[1.809s] running symlink_data
+[1.845s] Invoked command in '/home/anas/drone_sitl_ws/build/wld_net' returned '0': PYTHONPATH=/home/anas/drone_sitl_ws/build/wld_net/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/wld_net/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/wld_net/build --no-deps symlink_data

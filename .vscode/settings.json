@@ -1,0 +1,43 @@
+{
+    "ros.distro": "humble",
+    "python.autoComplete.extraPaths": [
+        "/home/anas/drone_sitl_ws/install/px4_ros_com/local/lib/python3.10/dist-packages",
+        "/home/anas/drone_sitl_ws/build/px4_offboard",
+        "/home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/anas/drone_sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/install/td3/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/build/sjtu_drone_control",
+        "/home/anas/ros2_ws/install/sjtu_drone_control/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/build/sjtu_drone_bringup",
+        "/home/anas/ros2_ws/install/sjtu_drone_bringup/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/build/px4_offboard",
+        "/home/anas/ros2_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/install/openni2_camera/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/build/f4_project",
+        "/home/anas/ros2_ws/install/f4_project/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/install/astra_camera_msgs/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/anas/drone_sitl_ws/install/px4_ros_com/local/lib/python3.10/dist-packages",
+        "/home/anas/drone_sitl_ws/build/px4_offboard",
+        "/home/anas/drone_sitl_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/anas/drone_sitl_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/install/td3/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/build/sjtu_drone_control",
+        "/home/anas/ros2_ws/install/sjtu_drone_control/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/build/sjtu_drone_bringup",
+        "/home/anas/ros2_ws/install/sjtu_drone_bringup/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/build/px4_offboard",
+        "/home/anas/ros2_ws/install/px4_offboard/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/install/px4_msgs/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/install/openni2_camera/local/lib/python3.10/dist-packages",
+        "/home/anas/ros2_ws/build/f4_project",
+        "/home/anas/ros2_ws/install/f4_project/lib/python3.10/site-packages",
+        "/home/anas/ros2_ws/install/astra_camera_msgs/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}

@@ -1,0 +1,157 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-738d318cddd7c41139bb.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						7
+					]
+				},
+				{
+					"build" : "gtest",
+					"jsonFile" : "directory-gtest-a2408fe1a73b92c5e636.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.8"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "/opt/ros/humble/src/gtest_vendor",
+					"targetIndexes" : 
+					[
+						5,
+						6
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "depthimage_to_laserscan",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						7
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "gtest",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						5,
+						6
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "DepthImageToLaserScan::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-DepthImageToLaserScan-c023ca85cae7211c1f64.json",
+					"name" : "DepthImageToLaserScan",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "DepthImageToLaserScanROS::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-DepthImageToLaserScanROS-6aa3e4b856828af04cd9.json",
+					"name" : "DepthImageToLaserScanROS",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "depthimage_to_laserscan-test::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-depthimage_to_laserscan-test-78a3b63d505fd7e8144c.json",
+					"name" : "depthimage_to_laserscan-test",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "depthimage_to_laserscan_node::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-depthimage_to_laserscan_node-0f3bd5bfc3bd94a0eb54.json",
+					"name" : "depthimage_to_laserscan_node",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "depthimage_to_laserscan_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-depthimage_to_laserscan_uninstall-874eb5a371affd970a60.json",
+					"name" : "depthimage_to_laserscan_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gtest::@0af4add9fe94340e763e",
+					"jsonFile" : "target-gtest-c151d11d964929757dae.json",
+					"name" : "gtest",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gtest_main::@0af4add9fe94340e763e",
+					"jsonFile" : "target-gtest_main-6855b3d8f60124a63db2.json",
+					"name" : "gtest_main",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-47ef44d688533d824273.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/anas/drone_sitl_ws/build/depthimage_to_laserscan",
+		"source" : "/home/anas/drone_sitl_ws/src/RL_research_workspace/src/depthimage_to_laserscan-foxy-devel"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 7
+	}
+}

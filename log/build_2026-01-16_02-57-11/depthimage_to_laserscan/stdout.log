@@ -1,0 +1,102 @@
+-- The C compiler identification is GNU 11.4.0
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/lib/ccache/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/lib/ccache/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Found image_geometry: 3.2.1 (/opt/ros/humble/share/image_geometry/cmake)
+-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found OpenCV: /usr (found version "4.5.4")
+-- Found rclcpp: 16.0.14 (/opt/ros/humble/share/rclcpp/cmake)
+-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+-- Found rmw_fastrtps_cpp: 6.2.8 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")
+-- Found FastRTPS: /opt/ros/humble/include
+-- Using RMW implementation 'rmw_fastrtps_cpp' as default
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found rclcpp_components: 16.0.14 (/opt/ros/humble/share/rclcpp_components/cmake)
+-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY
+-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY - Success
+-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY
+-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY - Success
+-- Performing Test COMPILER_HAS_DEPRECATED_ATTR
+-- Performing Test COMPILER_HAS_DEPRECATED_ATTR - Success
+-- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built
+-- Configuring done (7.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/anas/drone_sitl_ws/build/depthimage_to_laserscan
+[  8%] [32mBuilding CXX object gtest/CMakeFiles/gtest.dir/src/gtest-all.cc.o[0m
+[ 16%] [32mBuilding CXX object CMakeFiles/DepthImageToLaserScan.dir/src/DepthImageToLaserScan.cpp.o[0m
+[ 25%] [32mBuilding CXX object gtest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o[0m
+[ 33%] [32m[1mLinking CXX static library libgtest_main.a[0m
+[ 41%] [32m[1mLinking CXX static library libgtest.a[0m
+[ 50%] [32m[1mLinking CXX shared library libDepthImageToLaserScan.so[0m
+[ 50%] Built target gtest_main
+[ 50%] Built target gtest
+[ 50%] Built target DepthImageToLaserScan
+[ 66%] [32mBuilding CXX object CMakeFiles/depthimage_to_laserscan-test.dir/test/DepthImageToLaserScanTest.cpp.o[0m
+[ 66%] [32mBuilding CXX object CMakeFiles/DepthImageToLaserScanROS.dir/src/DepthImageToLaserScanROS.cpp.o[0m
+[ 75%] [32m[1mLinking CXX executable depthimage_to_laserscan-test[0m
+[ 83%] [32m[1mLinking CXX shared library libDepthImageToLaserScanROS.so[0m
+[ 83%] Built target depthimage_to_laserscan-test
+[ 83%] Built target DepthImageToLaserScanROS
+[ 91%] [32mBuilding CXX object CMakeFiles/depthimage_to_laserscan_node.dir/src/depthimage_to_laserscan.cpp.o[0m
+[100%] [32m[1mLinking CXX executable depthimage_to_laserscan_node[0m
+[100%] Built target depthimage_to_laserscan_node
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScan.hpp
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScan.hpp:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScanROS.hpp
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScanROS.hpp:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/depth_traits.hpp
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/depth_traits.hpp:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan-launch.py
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan-launch.py:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan-launch.py:Zone.Identifier:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan_composed-launch.py
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan_composed-launch.py:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//launch/depthimage_to_laserscan_composed-launch.py:Zone.Identifier:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//cfg/param.yaml
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//cfg/param.yaml:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan//cfg/param.yaml:Zone.Identifier:Zone.Identifier
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/lib/libDepthImageToLaserScan.so
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/lib/libDepthImageToLaserScanROS.so
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/lib/depthimage_to_laserscan/depthimage_to_laserscan_node
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScan_export.h
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/include/depthimage_to_laserscan/DepthImageToLaserScanROS_export.h
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/library_path.sh
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/library_path.dsv
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/ament_index/resource_index/package_run_dependencies/depthimage_to_laserscan
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/ament_index/resource_index/parent_prefix_path/depthimage_to_laserscan
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/ament_prefix_path.sh
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/ament_prefix_path.dsv
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/path.sh
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/environment/path.dsv
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/local_setup.bash
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/local_setup.sh
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/local_setup.zsh
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/local_setup.dsv
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/package.dsv
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/ament_index/resource_index/packages/depthimage_to_laserscan
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/ament_index/resource_index/rclcpp_components/depthimage_to_laserscan
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/cmake/ament_cmake_export_libraries-extras.cmake
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/cmake/depthimage_to_laserscanConfig.cmake
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/cmake/depthimage_to_laserscanConfig-version.cmake
+-- Symlinking: /home/anas/drone_sitl_ws/install/depthimage_to_laserscan/share/depthimage_to_laserscan/package.xml

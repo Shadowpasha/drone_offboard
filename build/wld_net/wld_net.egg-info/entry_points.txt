@@ -1,0 +1,4 @@
+[console_scripts]
+dehazing_node = wld_net.dehazing_node:main
+video_dehazing_node = wld_net.video_dehazing_node:main
+webcam_dehazing_node = wld_net.webcam_dehazing_node:main

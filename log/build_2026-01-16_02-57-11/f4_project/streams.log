@@ -1,0 +1,26 @@
+[1.453s] Invoking command in '/home/anas/drone_sitl_ws/build/f4_project': PYTHONPATH=/home/anas/drone_sitl_ws/build/f4_project/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/f4_project/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/f4_project/build --no-deps symlink_data
+[1.822s] running develop
+[2.096s] running egg_info
+[2.114s] creating f4_project.egg-info
+[2.114s] writing f4_project.egg-info/PKG-INFO
+[2.115s] writing dependency_links to f4_project.egg-info/dependency_links.txt
+[2.115s] writing entry points to f4_project.egg-info/entry_points.txt
+[2.115s] writing requirements to f4_project.egg-info/requires.txt
+[2.115s] writing top-level names to f4_project.egg-info/top_level.txt
+[2.115s] writing manifest file 'f4_project.egg-info/SOURCES.txt'
+[2.162s] reading manifest file 'f4_project.egg-info/SOURCES.txt'
+[2.163s] writing manifest file 'f4_project.egg-info/SOURCES.txt'
+[2.184s] running build_ext
+[2.184s] Creating /home/anas/drone_sitl_ws/install/f4_project/lib/python3.10/site-packages/f4-project.egg-link (link to .)
+[2.184s] Installing reset_odom script to /home/anas/drone_sitl_ws/install/f4_project/lib/f4_project
+[2.185s] 
+[2.185s] Installed /home/anas/drone_sitl_ws/build/f4_project
+[2.185s] running symlink_data
+[2.186s] creating /home/anas/drone_sitl_ws/install/f4_project/share/ament_index/resource_index/packages
+[2.186s] symbolically linking /home/anas/drone_sitl_ws/build/f4_project/resource/f4_project -> /home/anas/drone_sitl_ws/install/f4_project/share/ament_index/resource_index/packages
+[2.186s] symbolically linking /home/anas/drone_sitl_ws/build/f4_project/package.xml -> /home/anas/drone_sitl_ws/install/f4_project/share/f4_project
+[2.186s] creating /home/anas/drone_sitl_ws/install/f4_project/share/f4_project/worlds
+[2.187s] symbolically linking /home/anas/drone_sitl_ws/build/f4_project/worlds/empty.world -> /home/anas/drone_sitl_ws/install/f4_project/share/f4_project/worlds
+[2.187s] symbolically linking /home/anas/drone_sitl_ws/build/f4_project/worlds/empty_sped_up.world -> /home/anas/drone_sitl_ws/install/f4_project/share/f4_project/worlds
+[2.188s] creating /home/anas/drone_sitl_ws/install/f4_project/share/f4_project/launch
+[2.228s] Invoked command in '/home/anas/drone_sitl_ws/build/f4_project' returned '0': PYTHONPATH=/home/anas/drone_sitl_ws/build/f4_project/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/anas/drone_sitl_ws/install/f4_project/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/anas/drone_sitl_ws/build/f4_project/build --no-deps symlink_data

@@ -1,0 +1,14 @@
+package.xml
+setup.cfg
+setup.py
+f4_project/__init__.py
+f4_project.egg-info/PKG-INFO
+f4_project.egg-info/SOURCES.txt
+f4_project.egg-info/dependency_links.txt
+f4_project.egg-info/entry_points.txt
+f4_project.egg-info/requires.txt
+f4_project.egg-info/top_level.txt
+f4_project.egg-info/zip-safe
+resource/f4_project
+worlds/empty.world
+worlds/empty_sped_up.world
