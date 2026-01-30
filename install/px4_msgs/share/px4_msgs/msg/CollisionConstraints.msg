@@ -1,1 +1,0 @@
-/home/anas/drone_sitl_ws/src/px4_msgs/msg/CollisionConstraints.msg

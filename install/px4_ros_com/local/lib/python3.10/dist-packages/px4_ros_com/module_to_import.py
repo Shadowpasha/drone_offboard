@@ -1,1 +1,0 @@
-/home/anas/drone_sitl_ws/src/px4_ros_com/px4_ros_com/module_to_import.py

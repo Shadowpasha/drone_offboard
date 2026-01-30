@@ -1,1 +1,0 @@
-/home/anas/drone_sitl_ws/src/px4-offboard/launch/offboard_hardware_position_control.launch.py

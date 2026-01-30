@@ -1,1 +1,0 @@
-ament_cmake_symlink_install_targets("TARGET_FILES" "/home/anas/drone_sitl_ws/build/depthimage_to_laserscan/depthimage_to_laserscan_node" "TARGETS" "depthimage_to_laserscan_node" "DESTINATION" "lib/depthimage_to_laserscan")

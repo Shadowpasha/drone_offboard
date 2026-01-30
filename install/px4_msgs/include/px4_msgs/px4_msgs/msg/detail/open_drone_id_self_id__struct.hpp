@@ -1,1 +1,0 @@
-/home/anas/drone_sitl_ws/build/px4_msgs/rosidl_generator_cpp/px4_msgs/msg/detail/open_drone_id_self_id__struct.hpp

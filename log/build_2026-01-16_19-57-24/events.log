@@ -1,8 +1,0 @@
-[0.000000] (-) TimerEvent: {}
-[0.000352] (-) JobUnselected: {'identifier': 'depthimage_to_laserscan'}
-[0.000384] (-) JobUnselected: {'identifier': 'f4_project'}
-[0.000403] (-) JobUnselected: {'identifier': 'px4_msgs'}
-[0.000419] (-) JobUnselected: {'identifier': 'px4_offboard'}
-[0.000433] (-) JobUnselected: {'identifier': 'px4_ros_com'}
-[0.000448] (-) JobUnselected: {'identifier': 'wld_net'}
-[0.000462] (-) EventReactorShutdown: {}

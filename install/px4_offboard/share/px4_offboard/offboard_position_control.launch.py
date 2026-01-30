@@ -1,1 +1,0 @@
-/home/anas/drone_sitl_ws/build/px4_offboard/launch/offboard_position_control.launch.py

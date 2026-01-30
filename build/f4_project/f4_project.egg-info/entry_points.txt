@@ -1,2 +1,0 @@
-[console_scripts]
-reset_odom = f4_project.reset_odom_mobile:main
