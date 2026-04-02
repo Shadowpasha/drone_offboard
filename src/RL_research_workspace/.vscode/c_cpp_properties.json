@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/root/ros2_ws/install/sjtu_drone_description/include/**",
+        "/root/ros2_ws/install/px4_ros_com/include/**",
+        "/root/ros2_ws/install/px4_msgs/include/**",
+        "/root/ros2_ws/install/depthimage_to_laserscan/include/**",
+        "/opt/ros/humble/include/**",
+        "/root/ros2_ws/src/depthimage_to_laserscan-foxy-devel/include/**",
+        "/root/ros2_ws/src/px4_ros_com/include/**",
+        "/root/ros2_ws/src/sjtu_drone/sjtu_drone_description/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

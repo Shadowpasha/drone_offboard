@@ -1,0 +1,259 @@
+<?xml version="1.0"?>
+<robot name="tree_wider">
+
+
+  <link name="base_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="4.0" radius="0.3"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+       <cylinder length="4.0" radius="0.3"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="90"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+  <link name="tree_branch_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+         <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_link"/>
+  <origin xyz="0.33 0.0 0.0" rpy="0.0 1.57 0.0"/>
+ </joint>
+
+ <link name="tree_branch_link_lower">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+         <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_lower_link" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_link_lower"/>
+  <origin xyz="0.42 0.2 -0.9" rpy="0.0 1.57 0.57"/>
+ </joint>
+
+   <link name="tree_branch_link_lower_2">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+         <cylinder length="1.2" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_lower_link_2" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_link_lower_2"/>
+  <origin xyz="0.0 0.4 -1.2" rpy="0.0 1.57 1.57"/>
+ </joint>
+
+
+
+  <link name="tree_branch_2_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.5" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+   <cylinder length="1.5" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_2" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_2_link"/>
+  <origin xyz="0.0 0.5 0.5" rpy="1.57 0.0 0.0"/>
+ </joint>
+
+ <link name="tree_branch_3_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.5" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+        <cylinder length="1.5" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_3" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_3_link"/>
+  <origin xyz="0.2 0.2 0.9" rpy="1.57 0.0 -0.75"/>
+ </joint>
+
+  <link name="tree_branch_4_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.9" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+       <cylinder length="1.9" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_4" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_4_link"/>
+  <origin xyz="-0.1 0.1 -0.5" rpy="1.57 0.0 0.75"/>
+ </joint>
+
+   <link name="tree_branch_5_link">
+  <gravity>0</gravity>
+    <visual>
+      <geometry>
+        <cylinder length="1.9" radius="0.09"/>
+      </geometry>
+    </visual>
+
+    <collision>
+      <geometry>
+       <cylinder length="1.9" radius="0.09"/>
+      </geometry>
+    </collision>
+ <inertial>
+      <origin xyz="0 0 1" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia
+        ixx="1.0" ixy="0.0" ixz="0.0"
+        iyy="1.0" iyz="0.0"
+        izz="1.0"/>
+    </inertial>
+  </link>
+
+ <joint name="tree_branch_5" type="fixed">
+  <parent link="base_link"/>
+  <child link="tree_branch_5_link"/>
+  <origin xyz="0.0 0.0 1.5" rpy="1.57 0.0 1.35"/>
+ </joint>
+ 
+    <gazebo reference="base_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+
+    <gazebo reference="tree_branch_5_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+  <gazebo reference="tree_branch_4_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+  <gazebo reference="tree_branch_3_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+  <gazebo reference="tree_branch_2_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+  <gazebo reference="tree_branch_link">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+    <gazebo reference="tree_branch_link_lower">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+  <gazebo reference="tree_branch_link_lower_2">
+    <material>Gazebo/WoodFloor</material>
+  </gazebo>
+
+</robot>

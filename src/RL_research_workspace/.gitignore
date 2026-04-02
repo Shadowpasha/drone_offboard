@@ -1,0 +1,16 @@
+build/
+install/
+log/
+src/td3/scripts/runs/
+src/td3/scripts/pytorch_models/
+src/td3/scripts/results/
+src/f4_project/f4_project/TD3/models/
+src/f4_project/f4_project/TD3/runs/
+src/f4_project/f4_project/TD3/results/
+src/f4_project/f4_project/TD3/replays/
+src/f4_project/f4_project/TD3/rewards/
+src/f4_project/f4_project/TD3/transformer_TD3/models/
+src/f4_project/f4_project/TD3/transformer_TD3/runs/
+src/f4_project/f4_project/TD3/transformer_TD3/results/
+src/f4_project/f4_project/TD3/transformer_TD3/replays/
+src/f4_project/f4_project/TD3/transformer_TD3/rewards/
