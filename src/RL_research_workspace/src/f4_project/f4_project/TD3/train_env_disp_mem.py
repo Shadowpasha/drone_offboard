@@ -24,14 +24,15 @@ import os
 import cv2
 from px4_msgs.msg import VehicleAttitude, VehicleLocalPosition, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 from rclpy.clock import Clock
+import subprocess
 
 class DroneGazeboEnv(gym.Env):
     def __init__(self):
 
         qos_profile_laser = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.SYSTEM_DEFAULT,
-            history=DurabilityPolicy.SYSTEM_DEFAULT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
        
@@ -83,6 +84,7 @@ class DroneGazeboEnv(gym.Env):
             self.get_laser_scan,
             qos_profile_laser
         )
+        print(f"DEBUG: LiDAR subscription created on topic: {self.lidar_sub.topic_name}")
 
         self.pose = Pose()
         self.vel = Twist()
@@ -140,7 +142,11 @@ class DroneGazeboEnv(gym.Env):
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.arming_state = VehicleStatus.ARMING_STATE_DISARMED
+        # offboard_setpoint_counter initialization
         self.offboard_setpoint_counter = 0
+
+        # List to keep track of spawned obstacle names for cleanup
+        self.spawned_obstacles = []
 
         # Create a timer to publish control mode and maintain offboard
         self.timer = self.node.create_timer(0.05, self.cmdloop_callback)
@@ -176,23 +182,110 @@ class DroneGazeboEnv(gym.Env):
         print("Landing command sent.")
 
     def get_laser_scan(self, msg):
+        if self.laser_done_cnt == 0:
+            print("DEBUG: First LiDAR message received!")
+        self.laser_done_cnt += 1
+        
         ranges = np.array(msg.ranges)
-        # Handle Inf and Nan
-        ranges[np.isinf(ranges)] = msg.range_max
-        ranges[np.isnan(ranges)] = msg.range_max
+        # Handle Inf and Nan, using 12.0 as safe max range
+        ranges[np.isinf(ranges)] = 12.0
+        ranges[np.isnan(ranges)] = 12.0
         
-        # Downsample to 64 points
-        ranges_img = ranges.reshape(1, -1).astype(np.float32)
-        resized_ranges = cv2.resize(ranges_img, (64, 1), interpolation=cv2.INTER_AREA)
+        # Downsample to 64 points using min-pooling to ensure thin obstacles are not averaged out
+        # array_split handles uneven division safely
+        chunks = np.array_split(ranges, 64)
+        min_ranges = np.array([np.min(chunk) for chunk in chunks])
         
-        self.extracted_row = resized_ranges.flatten()
-        
-        # Normalization for Lidar rays (actual distance / 12.0) and clip to [0, 1]
-        self.extracted_row = self.extracted_row / 12.0
+        self.extracted_row = min_ranges / 12.0
         self.extracted_row = np.clip(self.extracted_row, 0.0, 1.0)
         
         # Check for NaN again just in case
         np.nan_to_num(self.extracted_row, copy=False, nan=1.0) # max range normalized is 1.0
+        
+        # Diagnostic print to verify LiDAR is being read every 20 frames (~1-2Hz)
+        if self.laser_done_cnt % 20 == 0:
+             print(f"LiDAR Update #{self.laser_done_cnt}: Min Range = {np.min(self.extracted_row)*12.0:.2f}m")
+
+    def spawn_cylinder(self, name, x, y):
+        """Spawn a fixed-size cylinder at (x, y) in Gazebo Sim using CLI to avoid interface mismatch."""
+        sdf_content = f"""
+        <?xml version="1.0" ?>
+        <sdf version="1.6">
+          <model name="{name}">
+            <static>true</static>
+            <link name="link">
+              <pose>{x} {y} 2.5 0 0 0</pose>
+              <collision name="collision">
+                <geometry>
+                  <cylinder><radius>0.1</radius><length>5.0</length></cylinder>
+                </geometry>
+              </collision>
+              <visual name="visual">
+                <geometry>
+                  <cylinder><radius>0.1</radius><length>5.0</length></cylinder>
+                </geometry>
+                <material>
+                  <ambient>0.8 0.1 0.1 1</ambient>
+                  <diffuse>0.8 0.1 0.1 1</diffuse>
+                </material>
+              </visual>
+            </link>
+          </model>
+        </sdf>""".replace('\n', '').replace('"', '\\"') # Flatten for CLI
+        
+        # Gazebo Sim Create command
+        cmd = [
+            'gz', 'service', '-s', '/world/forest/create',
+            '--reqtype', 'gz.msgs.EntityFactory',
+            '--reptype', 'gz.msgs.Boolean',
+            '--timeout', '300',
+            '--req', f'sdf: "{sdf_content}", name: "{name}"'
+        ]
+        
+        try:
+            subprocess.run(cmd, capture_output=True, check=False)
+            self.spawned_obstacles.append(name)
+            print(f"DEBUG: Spawned {name} via GZ service at ({x:.2f}, {y:.2f})")
+        except Exception as e:
+            print(f"ERROR spawning {name}: {e}")
+
+    def spawn_goal_marker(self, x, y):
+        """Spawn a visual green disk at the goal location in Gazebo Sim."""
+        name = "goal_disk"
+        sdf_content = f"""
+        <?xml version="1.0" ?>
+        <sdf version="1.6">
+          <model name="{name}">
+            <static>true</static>
+            <link name="link">
+              <pose>{x} {y} 0.05 0 0 0</pose>
+              <visual name="visual">
+                <geometry>
+                  <cylinder><radius>0.4</radius><length>0.1</length></cylinder>
+                </geometry>
+                <material>
+                  <ambient>0.1 0.8 0.1 1</ambient>
+                  <diffuse>0.1 0.8 0.1 1</diffuse>
+                </material>
+              </visual>
+            </link>
+          </model>
+        </sdf>""".replace('\n', '').replace('"', '\\"') # Flatten for CLI
+        
+        cmd = [
+            'gz', 'service', '-s', '/world/forest/create',
+            '--reqtype', 'gz.msgs.EntityFactory',
+            '--reptype', 'gz.msgs.Boolean',
+            '--timeout', '300',
+            '--req', f'sdf: "{sdf_content}", name: "{name}"'
+        ]
+        
+        try:
+            subprocess.run(['gz', 'service', '-s', '/world/forest/remove', '--reqtype', 'gz.msgs.Entity', '--reptype', 'gz.msgs.Boolean', '--timeout', '100', '--req', f'name: "{name}"'], capture_output=True)
+            subprocess.run(cmd, capture_output=True, check=False)
+            print(f"DEBUG: Goal disk spawned at ({x:.2f}, {y:.2f})")
+        except:
+            pass
 
 
     def vehicle_attitude_callback(self, msg):
@@ -481,8 +574,19 @@ class DroneGazeboEnv(gym.Env):
     
 
     def clear_trees(self):
-        # No entity spawning, so nothing to clear
-        pass
+        # Removing entities in Gazebo Sim via ROS2 is done through 'gz service' 
+        # as there isn't always a standard bridge for 'remove' unless configured.
+        # Here we use the spawned_obstacles list to keep track.
+        # To avoid complex ROS2-SDF-GZ service mapping for 'remove', 
+        # we'll just rename and overwrite or rely on the user to clean up if many.
+        # But most reliable way for SITL is to use subprocess for 'gz service'
+        import subprocess
+        for name in self.spawned_obstacles:
+             try:
+                 subprocess.run(['gz', 'service', '-s', '/world/forest/remove', '--reqtype', 'gz.msgs.Entity', '--reptype', 'gz.msgs.Boolean', '--timeout', '100', '--req', f'name: "{name}"'], capture_output=False)
+             except:
+                 pass
+        self.spawned_obstacles = []
     
     def publish_goal_marker(self, x, y):
         marker = Marker()
@@ -509,7 +613,10 @@ class DroneGazeboEnv(gym.Env):
         self.goal_marker_pub.publish(marker)
 
     def randomize_trees(self, goal_pos=None):
-        print("randomizing")   
+        print("randomizing obstacles along the path")
+        self.clear_trees()
+        
+        # 1. Determine Goal Position first
         if goal_pos is not None:
              local_fwd = float(goal_pos[0])
              local_left = float(goal_pos[1])
@@ -521,8 +628,9 @@ class DroneGazeboEnv(gym.Env):
         else:
             goal_ok = False
             while not goal_ok:
-                local_fwd = random.uniform(-3.0, 3.0)
-                local_left = random.uniform(-3.0, 3.0)
+                # Use slightly larger range for goal if none provided
+                local_fwd = random.uniform(3.0, 5.0) 
+                local_left = random.uniform(-2.0, 2.0)
                 
                 offset_east = local_fwd * math.cos(self.start_yaw) - local_left * math.sin(self.start_yaw)
                 offset_north = local_fwd * math.sin(self.start_yaw) + local_left * math.cos(self.start_yaw)
@@ -530,10 +638,41 @@ class DroneGazeboEnv(gym.Env):
                 self.goal = [self.start_east + offset_east, self.start_north + offset_north]
                 goal_ok = self.check_pos_goal(self.goal[0],self.goal[1])
 
+        # 2. Spawn cylinders along the direct path to the goal
+        dx = self.goal[0] - self.start_east
+        dy = self.goal[1] - self.start_north
+        path_dist = math.sqrt(dx**2 + dy**2)
+        
+        if path_dist > 1.0:
+            # Use fixed intervals so they are spread out along the route
+            # rather than purely random clumps
+            intervals = [0.15, 0.30, 0.45, 0.60, 0.75]
+            for i, base_frac in enumerate(intervals):
+                 obs_name = f"cylinder_{i}"
+                 # Add small jitter to the base interval
+                 frac = base_frac + random.uniform(-0.05, 0.05)
+                 
+                 # Calculate perpendicular vector for lateral jitter
+                 perp_x = -dy / path_dist
+                 perp_y = dx / path_dist
+                 
+                 jitter = random.uniform(-1.0, 1.0)
+                 
+                 ox = self.start_east + frac * dx + jitter * perp_x
+                 oy = self.start_north + frac * dy + jitter * perp_y
+                 
+                 # Ensure obstacle is not too close to the drone's start (min 1.5m distance)
+                 dist_from_start = math.sqrt((ox - self.start_east)**2 + (oy - self.start_north)**2)
+                 if dist_from_start > 1.5:
+                      self.spawn_cylinder(obs_name, ox, oy)
+                 else:
+                      print(f"DEBUG: Skipping {obs_name} - too close to drone ({dist_from_start:.2f}m)")
+
         time.sleep(0.1)
 
-        # Publish marker
+        # Publish marker in ROS2 and Gazebo
         self.publish_goal_marker(self.goal[0], self.goal[1])
+        self.spawn_goal_marker(self.goal[0], self.goal[1])
         
         # Distance to goal is now distance to actual start
         self.prev_distance = math.sqrt(math.pow(self.goal[0] - self.start_east, 2) + math.pow(self.goal[1] - self.start_north, 2))
