@@ -1,6 +1,13 @@
 from setuptools import setup
 import os
+import sys
 from glob import glob
+
+# Shim to translate --editable (passed by some versions of colcon) to develop
+if '--editable' in sys.argv:
+    sys.argv.remove('--editable')
+    if 'develop' not in sys.argv:
+        sys.argv.append('develop')
 
 package_name = 'f4_project'
 
@@ -17,7 +24,7 @@ setup(
         (os.path.join('share', package_name, "launch"), glob('launch/*launch.[pxy][yma]*')),
     ],
     install_requires=['setuptools'],
-    zip_safe=True,
+    zip_safe=False,
     maintainer='anas',
     maintainer_email='anas@todo.todo',
     description='TODO: Package description',

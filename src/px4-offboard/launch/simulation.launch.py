@@ -10,9 +10,14 @@ def generate_launch_description():
     # Paths
     px4_dir = os.path.expanduser('~/PX4-Autopilot')
     
+  
+    
+    additional_env = {}
+
     # 1. Micro-XRCE-DDS Agent
     micro_xrce_agent = ExecuteProcess(
         cmd=['MicroXRCEAgent', 'udp4', '-p', '8888'],
+        additional_env=additional_env,
         output='screen'
     )
     
@@ -32,7 +37,7 @@ def generate_launch_description():
         executable='parameter_bridge',
         arguments=[
             '/world/forest/model/x500_lidar_2d_0/link/link/sensor/lidar_2d_v2/scan@sensor_msgs/msg/LaserScan@gz.msgs.LaserScan',
-            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'
+            # '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'
         ],
         output='screen'
     )

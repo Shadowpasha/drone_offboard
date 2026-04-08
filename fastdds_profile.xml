@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <!--
+            Default participant profile: applies to ALL DDS participants 
+            in any node launched with FASTRTPS_DEFAULT_PROFILES_FILE pointing here.
+            
+            Fix for:  RTPS_READER_HISTORY Error — Change payload size of '220' bytes 
+                       is larger than the history payload size of '207' bytes.
+            
+            Root cause: PX4 messages (VehicleLocalPosition, TrajectorySetpoint, etc.)
+            can serialize to >207 bytes, which exceeds the default Fast-DDS 
+            preallocated payload pool size.
+        -->
+        <participant profile_name="default_participant" is_default_profile="true">
+            <rtps>
+                <builtin>
+                    <readerPayloadSize>1024</readerPayloadSize>
+                    <writerPayloadSize>1024</writerPayloadSize>
+                </builtin>
+            </rtps>
+        </participant>
+
+        <!-- Catch-all data reader profile with generous payload -->
+        <data_reader profile_name="default_reader" is_default_profile="true">
+            <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+        </data_reader>
+
+        <!-- Catch-all data writer profile with generous payload -->
+        <data_writer profile_name="default_writer" is_default_profile="true">
+            <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+        </data_writer>
+
+    </profiles>
+
+    <log>
+        <use_stdout>false</use_stdout>
+        <consumer>
+            <class>StdoutConsumer</class>
+        </consumer>
+    </log>
+</dds>

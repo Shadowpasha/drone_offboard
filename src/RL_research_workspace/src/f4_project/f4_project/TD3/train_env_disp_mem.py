@@ -22,9 +22,10 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 import os
 import cv2
-from px4_msgs.msg import VehicleAttitude, VehicleLocalPosition, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
+from px4_msgs.msg import VehicleAttitude, VehicleLocalPosition, VehicleOdometry, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 from rclpy.clock import Clock
 import subprocess
+
 
 class DroneGazeboEnv(gym.Env):
     def __init__(self):
@@ -72,8 +73,8 @@ class DroneGazeboEnv(gym.Env):
             qos_profile_sub,
         )
         self.local_position_sub_px4 = self.node.create_subscription(
-            VehicleLocalPosition,
-            "/fmu/out/vehicle_local_position_v1",
+            VehicleOdometry,
+            "/fmu/out/vehicle_odometry",
             self.vehicle_local_position_callback,
             qos_profile_sub,
         )
@@ -150,6 +151,11 @@ class DroneGazeboEnv(gym.Env):
 
         # Create a timer to publish control mode and maintain offboard
         self.timer = self.node.create_timer(0.05, self.cmdloop_callback)
+        self.goal_marker_spawned = False
+        
+        self.target_pos = np.zeros(3) # ENU target setpoint [East, North, Up]
+        self.last_action = np.zeros(2) # [last_action_x, last_action_y]
+        self.world_size = 15.0 # Normalization constant for world-frame distances
 
 
     def cmdloop_callback(self):
@@ -281,8 +287,12 @@ class DroneGazeboEnv(gym.Env):
         ]
         
         try:
-            subprocess.run(['gz', 'service', '-s', '/world/forest/remove', '--reqtype', 'gz.msgs.Entity', '--reptype', 'gz.msgs.Boolean', '--timeout', '100', '--req', f'name: "{name}"'], capture_output=True)
+            # Only attempt to remove if we successfully spawned it previously
+            if self.goal_marker_spawned:
+                subprocess.run(['gz', 'service', '-s', '/world/forest/remove', '--reqtype', 'gz.msgs.Entity', '--reptype', 'gz.msgs.Boolean', '--timeout', '50', '--req', f'name: "{name}"'], capture_output=True, check=False)
+            
             subprocess.run(cmd, capture_output=True, check=False)
+            self.goal_marker_spawned = True
             print(f"DEBUG: Goal disk spawned at ({x:.2f}, {y:.2f})")
         except:
             pass
@@ -309,13 +319,16 @@ class DroneGazeboEnv(gym.Env):
 
 
     def vehicle_local_position_callback(self, msg):
-        # NED->ENU transformation for position and velocity
-        self.vehicle_local_position[0] = msg.y
-        self.vehicle_local_position[1] = msg.x
-        self.vehicle_local_position[2] = -msg.z
-        self.vehicle_local_velocity[0] = msg.vy
-        self.vehicle_local_velocity[1] = msg.vx
-        self.vehicle_local_velocity[2] = -msg.vz
+        # NED->ENU transformation for position and velocity using VehicleOdometry arrays
+        # msg.position: [0]=North, [1]=East, [2]=Down
+        self.vehicle_local_position[0] = msg.position[1] # East
+        self.vehicle_local_position[1] = msg.position[0] # North
+        self.vehicle_local_position[2] = -msg.position[2] # Up
+        
+        # msg.velocity: [0]=vx(North), [1]=vy(East), [2]=vz(Down)
+        self.vehicle_local_velocity[0] = msg.velocity[1] # vy
+        self.vehicle_local_velocity[1] = msg.velocity[0] # vx
+        self.vehicle_local_velocity[2] = -msg.velocity[2] # vz
         
         # Update self.pose position for existing logic
         self.pose.position.x = self.vehicle_local_position[0]
@@ -331,7 +344,7 @@ class DroneGazeboEnv(gym.Env):
         self.distance = math.sqrt(math.pow((self.goal[0] - self.pose.position.x),2) + math.pow((self.goal[1] - self.pose.position.y),2))
         self.goal_heading = math.atan2((self.goal[1] - self.pose.position.y),self.goal[0]-self.pose.position.x)
         
-        if(abs(self.distance) < 0.5):
+        if(abs(self.distance) < 0.3):
             self.done = True
             self.goal_reached = True
 
@@ -443,6 +456,10 @@ class DroneGazeboEnv(gym.Env):
         
         self.randomize_trees(goal_pos=goal_pos)
         
+        # Track initial target setpoint (matches takeoff height)
+        self.target_pos = np.array([self.start_east, self.start_north, 1.5]) # ENU
+        self.last_action = np.zeros(2)
+        
         laser_combination_level = self.extracted_row
         self.closest_laser = np.min(laser_combination_level)
         self.original_distance = math.sqrt(math.pow((self.goal[0] - self.pose.position.x),2) + math.pow((self.goal[1] - self.pose.position.y),2))
@@ -452,18 +469,21 @@ class DroneGazeboEnv(gym.Env):
         # Construct 6-dim goal data: [Last Action X, Last Action Y, Dist/15, Heading/pi, DevX/15, DevY/15]
         # Heading diff normalized by pi (wrap to [-pi, pi] first)
         heading_diff = self.goal_heading - self.trueYaw
-        while heading_diff > math.pi: heading_diff -= 2 * math.pi
-        while heading_diff < -math.pi: heading_diff += 2 * math.pi
+        heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
         heading_norm = heading_diff / math.pi
         
-        # Standard frame transformation (Ego-centric)
-        dx = self.goal[0] - self.pose.position.x
-        dy = self.goal[1] - self.pose.position.y
+        # Deviation from setpoint (current position - target setpoint)
+        dev_x = self.target_pos[0] - self.pose.position.x
+        dev_y = self.target_pos[1] - self.pose.position.y
         
-        target_dev_x = (dx * math.cos(self.trueYaw) + dy * math.sin(self.trueYaw)) / 15.0
-        target_dev_y = (-dx * math.sin(self.trueYaw) + dy * math.cos(self.trueYaw)) / 15.0
-        
-        self.goal_data = np.array([0.0, 0.0, self.distance / 15.0, heading_norm, target_dev_x, target_dev_y])
+        self.goal_data = np.array([
+            self.last_action[0], 
+            self.last_action[1], 
+            self.distance / 15.0, 
+            heading_norm, 
+            dev_x / self.world_size, 
+            dev_y / self.world_size
+        ], dtype=np.float64)
 
         state =  np.append(laser_combination_level,self.goal_data)
         self.previous_error = 0.0
@@ -481,10 +501,10 @@ class DroneGazeboEnv(gym.Env):
 
         # Holonomic Translational Control
         # Action[0] is forward/backward -> mapped to [-0.4, 0.4]
-        move_fwd = float(action[0]) * 0.4
+        move_fwd = float(action[0]) * 0.1
         # Action[1] is left/right -> mapped to [-0.4, 0.4]
         # Using rotation matrix where positive action[1] is lateral LEFT
-        move_lat = float(action[1]) * 0.4
+        move_lat = float(action[1]) * 0.1
         
         # Current Position (ENU)
         current_east = self.vehicle_local_position[0]
@@ -513,6 +533,10 @@ class DroneGazeboEnv(gym.Env):
         vel_cmd.yaw = self.raw_ned_yaw
 
         self.publisher_trajectory.publish(vel_cmd)
+        
+        # Track commanded setpoint and action for observation
+        self.target_pos = np.array([target_east, target_north, target_up])
+        self.last_action = action
 
         time.sleep(0.05)
 
@@ -522,22 +546,26 @@ class DroneGazeboEnv(gym.Env):
         
         # Construct 6-dim goal data: [Last Action X, Last Action Y, Dist/15, Heading/pi, DevX/15, DevY/15]
         heading_diff = self.goal_heading - self.trueYaw
-        while heading_diff > math.pi: heading_diff -= 2 * math.pi
-        while heading_diff < -math.pi: heading_diff += 2 * math.pi
+        heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
         heading_norm = heading_diff / math.pi
         
-        # Standard frame transformation (Ego-centric)
-        dx = self.goal[0] - self.pose.position.x
-        dy = self.goal[1] - self.pose.position.y
+        # Deviation from setpoint (current position - target setpoint)
+        dev_x = self.target_pos[0] - self.pose.position.x
+        dev_y = self.target_pos[1] - self.pose.position.y
         
-        target_dev_x = (dx * math.cos(self.trueYaw) + dy * math.sin(self.trueYaw)) / 15.0
-        target_dev_y = (-dx * math.sin(self.trueYaw) + dy * math.cos(self.trueYaw)) / 15.0
+        self.goal_data = np.array([
+            self.last_action[0], 
+            self.last_action[1], 
+            self.distance / 15.0, 
+            heading_norm, 
+            dev_x / self.world_size, 
+            dev_y / self.world_size
+        ], dtype=np.float64)
         
-        self.goal_data = np.array([action[0], action[1], self.distance / 15.0, heading_norm, target_dev_x, target_dev_y])
         state =  np.append(laser_combination_level,self.goal_data)
         # print(state)
 
-        if(self.ep_time > 500):
+        if(self.ep_time > 1000):
             self.done = True
             truncated = True
         self.ep_time+=1

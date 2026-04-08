@@ -1,3 +1,11 @@
+import os
+import sys
+
+# ── Fix RTPS payload-too-small error (220 > 207 bytes) ──────────────────────
+# Set FastDDS profile BEFORE ANY rclpy/gym imports so the middleware uses the XML.
+_test_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+
 import numpy as np
 import torch
 import gymnasium as gym
