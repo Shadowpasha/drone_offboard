@@ -34,9 +34,9 @@ dimension_mem = 5
 class Actor(nn.Module):
 	def __init__(self, state_dim, action_dim, max_action):
 		super(Actor, self).__init__()
-		self.l1 = nn.Linear((state_dim), 800)
-		self.l2 = nn.Linear(800, 600)
-		self.l3 = nn.Linear(600, action_dim)
+		self.l1 = nn.Linear((state_dim), 1024)
+		self.l2 = nn.Linear(1024, 512)
+		self.l3 = nn.Linear(512, action_dim)
 
 
 		self.max_action = max_action

@@ -1,0 +1,194 @@
+<?xml version="1.0"?>
+<robot name="ring_obstacle">
+  <!-- Material -->
+  <material name="green">
+    <color rgba="0.0 1.0 0.0 1.0"/>
+  </material>
+
+  <link name="base_link">
+    <!-- Dummy base -->
+  </link>
+
+  <!-- Left Pole -->
+  <link name="left_pole">
+    <visual>
+      <origin xyz="0 -1.0 1.0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="2.0"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -1.0 1.0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="2.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Right Pole -->
+  <link name="right_pole">
+    <visual>
+      <origin xyz="0 1.0 1.0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="2.0"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 1.0 1.0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="2.0"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Octagon Ring Approximating Circular Ring -->
+  <!-- Segment 1: Bottom -->
+  <link name="ring_seg_1">
+    <visual>
+      <origin xyz="0 0 0.2" rpy="1.5707963 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.2" rpy="1.5707963 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 2: Top -->
+  <link name="ring_seg_2">
+    <visual>
+      <origin xyz="0 0 1.8" rpy="1.5707963 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 1.8" rpy="1.5707963 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 3: Left -->
+  <link name="ring_seg_3">
+    <visual>
+      <origin xyz="0 -0.8 1.0" rpy="0 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.8 1.0" rpy="0 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 4: Right -->
+  <link name="ring_seg_4">
+    <visual>
+      <origin xyz="0 0.8 1.0" rpy="0 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0.8 1.0" rpy="0 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.8"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 5: Bottom Left Angle -->
+  <link name="ring_seg_5">
+    <visual>
+      <origin xyz="0 -0.6 0.4" rpy="0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.6 0.4" rpy="0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 6: Bottom Right Angle -->
+  <link name="ring_seg_6">
+    <visual>
+      <origin xyz="0 0.6 0.4" rpy="-0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0.6 0.4" rpy="-0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 7: Top Left Angle -->
+  <link name="ring_seg_7">
+    <visual>
+      <origin xyz="0 -0.6 1.6" rpy="-0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.6 1.6" rpy="-0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Segment 8: Top Right Angle -->
+  <link name="ring_seg_8">
+    <visual>
+      <origin xyz="0 0.6 1.6" rpy="0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+      <material name="green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0.6 1.6" rpy="0.785398 1.5707963 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.6"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joints linking segments to base -->
+  <joint name="j1" type="fixed"><parent link="base_link"/><child link="left_pole"/></joint>
+  <joint name="j2" type="fixed"><parent link="base_link"/><child link="right_pole"/></joint>
+  <joint name="j3" type="fixed"><parent link="base_link"/><child link="ring_seg_1"/></joint>
+  <joint name="j4" type="fixed"><parent link="base_link"/><child link="ring_seg_2"/></joint>
+  <joint name="j5" type="fixed"><parent link="base_link"/><child link="ring_seg_3"/></joint>
+  <joint name="j6" type="fixed"><parent link="base_link"/><child link="ring_seg_4"/></joint>
+  <joint name="j7" type="fixed"><parent link="base_link"/><child link="ring_seg_5"/></joint>
+  <joint name="j8" type="fixed"><parent link="base_link"/><child link="ring_seg_6"/></joint>
+  <joint name="j9" type="fixed"><parent link="base_link"/><child link="ring_seg_7"/></joint>
+  <joint name="j10" type="fixed"><parent link="base_link"/><child link="ring_seg_8"/></joint>
+</robot>

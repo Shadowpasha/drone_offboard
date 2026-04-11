@@ -70,6 +70,11 @@ class SquareOffboardControl(Node):
 
         self.status_sub = self.create_subscription(
             VehicleStatus,
+            '/fmu/out/vehicle_status',
+            self.vehicle_status_callback,
+            qos_profile_sub)
+        self.status_sub_v1 = self.create_subscription(
+            VehicleStatus,
             '/fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
@@ -88,31 +93,38 @@ class SquareOffboardControl(Node):
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
         self.dt = timer_period
 
-        self.declare_parameter('altitude', 1.0)
-        self.declare_parameter('hold_duration', 8.0) # Duration at each corner
-        self.declare_parameter('square_side', 1.5)   # Length of the square side in meters
+        self.declare_parameter('altitude', 1.5)
+        self.declare_parameter('speed', 0.1) # 0.1 m/s
+        self.declare_parameter('hold_duration', 5.0)
+        self.declare_parameter('square_side', 2.0)
+        
+        self.altitude = self.get_parameter('altitude').value
+        self.speed = self.get_parameter('speed').value
+        self.hold_duration = self.get_parameter('hold_duration').value
+        self.square_side = self.get_parameter('square_side').value
+        self.step_size = self.speed * self.dt
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.arming_state = VehicleStatus.ARMING_STATE_DISARMED
         
-        self.altitude = self.get_parameter('altitude').value
-        self.hold_duration = self.get_parameter('hold_duration').value
-        self.square_side = self.get_parameter('square_side').value
-
         # State machine variables
         self.flight_state = "PRE_FLIGHT"
         self.offboard_setpoint_counter = 0
         self.state_timer_start = None
         self.current_yaw = 0.0
         self.target_yaw = 0.0
+        self.data_valid = False
         
         # Position variables
         self.current_pos_x = 0.0
         self.current_pos_y = 0.0
         self.current_pos_z = 0.0
         
+        self.active_setpoint_x = 0.0
+        self.active_setpoint_y = 0.0
+        
         # Waypoints (WP0 is takeoff/home, WP1-4 are square corners)
-        self.wp_home = [0.0, 0.0, 0.0]
+        self.wp_home = np.array([0.0, 0.0, 0.0])
         self.wp_1 = [0.0, 0.0, 0.0] # Forward
         self.wp_2 = [0.0, 0.0, 0.0] # Left
         self.wp_3 = [0.0, 0.0, 0.0] # Backward
@@ -131,6 +143,7 @@ class SquareOffboardControl(Node):
         # Calculate yaw from quaternion (w, x, y, z)
         q = msg.q
         self.current_yaw = np.arctan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]))
+        self.data_valid = True
 
     def publish_vehicle_command(self, command, param1=0.0, param2=0.0):
         msg = VehicleCommand()
@@ -189,14 +202,27 @@ class SquareOffboardControl(Node):
             self.wp_home[2]
         ]
 
-    def publish_setpoint(self, position_ned):
+    def publish_setpoint(self, target_ned):
+        # Smoothly interpolate active_setpoint towards target_ned
+        dx = target_ned[0] - self.active_setpoint_x
+        dy = target_ned[1] - self.active_setpoint_y
+        dist = np.sqrt(dx**2 + dy**2)
+
+        if dist > self.step_size:
+            self.active_setpoint_x += (dx / dist) * self.step_size
+            self.active_setpoint_y += (dy / dist) * self.step_size
+        else:
+            self.active_setpoint_x = target_ned[0]
+            self.active_setpoint_y = target_ned[1]
+
         trajectory_msg = TrajectorySetpoint()
         trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-        trajectory_msg.position[0] = position_ned[0]
-        trajectory_msg.position[1] = position_ned[1]
-        trajectory_msg.position[2] = self.wp_home[2] - self.altitude # Target altitude
+        trajectory_msg.position[0] = self.active_setpoint_x
+        trajectory_msg.position[1] = self.active_setpoint_y
+        trajectory_msg.position[2] = self.wp_home[2] - self.altitude
         trajectory_msg.yaw = self.target_yaw
         self.publisher_trajectory.publish(trajectory_msg)
+        return dist
 
     def cmdloop_callback(self):
         # Publish offboard control modes
@@ -210,80 +236,77 @@ class SquareOffboardControl(Node):
         current_time = self.get_clock().now().nanoseconds / 1e9
 
         if self.flight_state == "PRE_FLIGHT":
-            self.target_yaw = self.current_yaw
-            self.calculate_square_waypoints()
+            if self.data_valid:
+                self.target_yaw = self.current_yaw
+                self.calculate_square_waypoints()
 
-            # Send setpoints at current position (ground)
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            trajectory_msg.position[0] = self.wp_home[0]
-            trajectory_msg.position[1] = self.wp_home[1]
-            trajectory_msg.position[2] = self.wp_home[2]
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
+                # Send setpoints at current position (ground)
+                trajectory_msg = TrajectorySetpoint()
+                trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+                trajectory_msg.position[0] = self.wp_home[0]
+                trajectory_msg.position[1] = self.wp_home[1]
+                trajectory_msg.position[2] = self.wp_home[2]
+                trajectory_msg.yaw = self.target_yaw
+                self.publisher_trajectory.publish(trajectory_msg)
 
-            if self.offboard_setpoint_counter >= 10:
-                self.flight_state = "ARMED_WAIT"
-                self.get_logger().info("Waypoints calculated. Waiting for Arm/Offboard...")
+                if self.offboard_setpoint_counter >= 10:
+                    self.flight_state = "TAKEOFF"
+                    self.active_setpoint_x = self.wp_home[0]
+                    self.active_setpoint_y = self.wp_home[1]
+                    self.get_logger().info("Waypoints calculated. Taking off.")
 
-            self.offboard_setpoint_counter += 1
-
-        elif self.flight_state == "ARMED_WAIT":
-            # Hold Home Position (Ground)
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            # Fix: Assign elements individually instead of full list assignment
-            trajectory_msg.position[0] = self.wp_home[0]
-            trajectory_msg.position[1] = self.wp_home[1]
-            trajectory_msg.position[2] = self.wp_home[2]
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
-
-            if (self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD and 
-                self.arming_state == VehicleStatus.ARMING_STATE_ARMED):
-                self.flight_state = "TAKEOFF"
-                self.state_timer_start = current_time
-                self.get_logger().info("Takeoff started.")
-            else:
-                if self.offboard_setpoint_counter % 10 == 0:
-                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
-                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
                 self.offboard_setpoint_counter += 1
 
         elif self.flight_state == "TAKEOFF":
-            self.publish_setpoint(self.wp_home) # Ascend vertical
-            if (current_time - self.state_timer_start) > self.hold_duration:
+            # Command takeoff (Ascend vertical)
+            self.publish_setpoint(self.wp_home)
+
+            # Recurrently spam Arm/Offboard commands
+            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED or self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+                if self.offboard_setpoint_counter % 10 == 0:
+                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
+                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+            
+            self.offboard_setpoint_counter += 1
+
+            # Monitor altitude
+            dist_z = abs(self.current_pos_z - (self.wp_home[2] - self.altitude))
+            if dist_z < 0.2:
                 self.flight_state = "WAYPOINT_1"
                 self.state_timer_start = current_time
-                self.get_logger().info("Moving Forward (WP1)")
+                self.get_logger().info("Altitude reached. Moving Forward (WP1)")
 
         elif self.flight_state == "WAYPOINT_1":
-            self.publish_setpoint(self.wp_1)
-            if (current_time - self.state_timer_start) > self.hold_duration:
-                self.flight_state = "WAYPOINT_2"
-                self.state_timer_start = current_time
-                self.get_logger().info("Moving Left (WP2)")
+            dist = self.publish_setpoint(self.wp_1)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_2"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Left (WP2)")
 
         elif self.flight_state == "WAYPOINT_2":
-            self.publish_setpoint(self.wp_2)
-            if (current_time - self.state_timer_start) > self.hold_duration:
-                self.flight_state = "WAYPOINT_3"
-                self.state_timer_start = current_time
-                self.get_logger().info("Moving Backward (WP3)")
+            dist = self.publish_setpoint(self.wp_2)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_3"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Backward (WP3)")
 
         elif self.flight_state == "WAYPOINT_3":
-            self.publish_setpoint(self.wp_3)
-            if (current_time - self.state_timer_start) > self.hold_duration:
-                self.flight_state = "WAYPOINT_4"
-                self.state_timer_start = current_time
-                self.get_logger().info("Moving Right/Home (WP4)")
+            dist = self.publish_setpoint(self.wp_3)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_4"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Right/Home (WP4)")
 
         elif self.flight_state == "WAYPOINT_4":
-            self.publish_setpoint(self.wp_4) # Should be same X,Y as Home
-            if (current_time - self.state_timer_start) > self.hold_duration:
-                self.flight_state = "LANDING"
-                self.get_logger().info("Square complete. Landing.")
-                self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+            dist = self.publish_setpoint(self.wp_4)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "LANDING"
+                    self.get_logger().info("Square complete. Landing.")
+                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
 
         elif self.flight_state == "LANDING":
             if self.arming_state == VehicleStatus.ARMING_STATE_DISARMED:

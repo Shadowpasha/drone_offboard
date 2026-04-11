@@ -1,0 +1,141 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="ring_obstacle">
+    <static>true</static>
+    <link name="link">
+      
+      <!-- Left Pole. Pos: y=-0.33, z=1.0 -->
+      <visual name="left_pole_v">
+        <pose>0 -0.33 1.0 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>2.0</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="left_pole_c">
+        <pose>0 -0.33 1.0 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>2.0</length></cylinder></geometry>
+      </collision>
+
+      <!-- Right Pole. Pos: y=0.33, z=1.0 -->
+      <visual name="right_pole_v">
+        <pose>0 0.33 1.0 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>2.0</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="right_pole_c">
+        <pose>0 0.33 1.0 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>2.0</length></cylinder></geometry>
+      </collision>
+
+      <!-- Left Connector. Pos: y=-0.315, z=1.6 -->
+      <visual name="left_conn_v">
+        <pose>0 -0.315 1.6 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.06</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="left_conn_c">
+        <pose>0 -0.315 1.6 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.06</length></cylinder></geometry>
+      </collision>
+
+      <!-- Right Connector. Pos: y=0.315, z=1.6 -->
+      <visual name="right_conn_v">
+        <pose>0 0.315 1.6 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.06</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="right_conn_c">
+        <pose>0 0.315 1.6 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.06</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Top -->
+      <visual name="seg_top_v">
+        <pose>0 0 1.90 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_top_c">
+        <pose>0 0 1.90 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Bottom -->
+      <visual name="seg_bot_v">
+        <pose>0 0 1.30 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_bot_c">
+        <pose>0 0 1.30 1.5707963 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Left -->
+      <visual name="seg_left_v">
+        <pose>0 -0.30 1.60 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_left_c">
+        <pose>0 -0.30 1.60 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Right -->
+      <visual name="seg_right_v">
+        <pose>0 0.30 1.60 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_right_c">
+        <pose>0 0.30 1.60 0 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Top-Left (Slope +1 -> -45 deg) -->
+      <visual name="seg_tl_v">
+        <pose>0 -0.212 1.812 -0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_tl_c">
+        <pose>0 -0.212 1.812 -0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Bottom-Right (Slope +1 -> -45 deg) -->
+      <visual name="seg_br_v">
+        <pose>0 0.212 1.388 -0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_br_c">
+        <pose>0 0.212 1.388 -0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Top-Right (Slope -1 -> 45 deg) -->
+      <visual name="seg_tr_v">
+        <pose>0 0.212 1.812 0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_tr_c">
+        <pose>0 0.212 1.812 0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+      <!-- Ring Segment: Bottom-Left (Slope -1 -> 45 deg) -->
+      <visual name="seg_bl_v">
+        <pose>0 -0.212 1.388 0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+        <material><ambient>0.8 0.8 0 1</ambient><diffuse>0.8 0.8 0 1</diffuse></material>
+      </visual>
+      <collision name="seg_bl_c">
+        <pose>0 -0.212 1.388 0.785398 0 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.26</length></cylinder></geometry>
+      </collision>
+
+    </link>
+  </model>
+</sdf>

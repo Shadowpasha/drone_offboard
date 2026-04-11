@@ -78,6 +78,18 @@ class DroneGazeboEnv(gym.Env):
             self.vehicle_local_position_callback,
             qos_profile_sub,
         )
+        self.status_sub_px4 = self.node.create_subscription(
+            VehicleStatus,
+            "/fmu/out/vehicle_status",
+            self.vehicle_status_callback,
+            qos_profile_sub,
+        )
+        self.status_sub_px4_v1 = self.node.create_subscription(
+            VehicleStatus,
+            "/fmu/out/vehicle_status_v1",
+            self.vehicle_status_callback,
+            qos_profile_sub,
+        )
 
         self.lidar_sub = self.node.create_subscription(
             LaserScan,
@@ -113,7 +125,7 @@ class DroneGazeboEnv(gym.Env):
 
         self.contact = ContactsState()
         self.action_space = spaces.Box(np.array([-1,-1]),np.array([1,1]),(2,),dtype= np.float64) 
-        self.observation_space = spaces.Box(-1.0, 1.0, shape=(70,), dtype= np.float64)
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(134,), dtype= np.float64)
         self.laser_done_cnt = 0
         self.ep_time = time.time()
         self.previous_error = 0.0
@@ -134,7 +146,7 @@ class DroneGazeboEnv(gym.Env):
         self.laser_ranges_bottom = np.zeros(10)
         self.laser_ranges_360 = np.zeros(20)
         self.goal_data = np.zeros(6)
-        self.extracted_row = np.ones(64) * 1.0 # Initialize with safe distance
+        self.extracted_row = np.ones(128) * 1.0 # Initialize with safe distance
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
@@ -156,6 +168,7 @@ class DroneGazeboEnv(gym.Env):
         self.target_pos = np.zeros(3) # ENU target setpoint [East, North, Up]
         self.last_action = np.zeros(2) # [last_action_x, last_action_y]
         self.world_size = 15.0 # Normalization constant for world-frame distances
+        self._is_closed = False
 
 
     def cmdloop_callback(self):
@@ -185,75 +198,65 @@ class DroneGazeboEnv(gym.Env):
     def land(self):
         # Sends NAV_LAND command (21)
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-        print("Landing command sent.")
+        self.node.get_logger().info("Landing command sent.")
 
     def get_laser_scan(self, msg):
         if self.laser_done_cnt == 0:
-            print("DEBUG: First LiDAR message received!")
+            self.node.get_logger().info("First LiDAR message received!")
         self.laser_done_cnt += 1
         
         ranges = np.array(msg.ranges)
-        # Handle Inf and Nan, using 12.0 as safe max range
-        ranges[np.isinf(ranges)] = 12.0
-        ranges[np.isnan(ranges)] = 12.0
+        # Vectorized clipping and NaN handling
+        ranges = np.nan_to_num(ranges, nan=12.0, posinf=12.0, neginf=12.0)
         
-        # Downsample to 64 points using min-pooling to ensure thin obstacles are not averaged out
-        # array_split handles uneven division safely
-        chunks = np.array_split(ranges, 64)
-        min_ranges = np.array([np.min(chunk) for chunk in chunks])
+        # Optimized Vectorized Downsampling (Reshape + Min)
+        num_points = len(ranges)
+        points_per_chunk = num_points // 128
+        if points_per_chunk > 0:
+            trimmed_ranges = ranges[:128 * points_per_chunk]
+            min_ranges = trimmed_ranges.reshape(128, points_per_chunk).min(axis=1)
+        else:
+            min_ranges = np.interp(np.linspace(0, num_points, 128), np.arange(num_points), ranges)
         
-        self.extracted_row = min_ranges / 12.0
-        self.extracted_row = np.clip(self.extracted_row, 0.0, 1.0)
-        
-        # Check for NaN again just in case
-        np.nan_to_num(self.extracted_row, copy=False, nan=1.0) # max range normalized is 1.0
-        
-        # Diagnostic print to verify LiDAR is being read every 20 frames (~1-2Hz)
-        if self.laser_done_cnt % 20 == 0:
-             print(f"LiDAR Update #{self.laser_done_cnt}: Min Range = {np.min(self.extracted_row)*12.0:.2f}m")
+        # LiDAR Arrangement Alignment Patch
+        angle_range = msg.angle_max - msg.angle_min
+        if angle_range > 0:
+            front_fraction = (-msg.angle_min) / angle_range
+            current_front_idx = int(front_fraction * 128) % 128
+            shift = 64 - current_front_idx
+            min_ranges = np.roll(min_ranges, shift)
 
-    def spawn_cylinder(self, name, x, y):
-        """Spawn a fixed-size cylinder at (x, y) in Gazebo Sim using CLI to avoid interface mismatch."""
-        sdf_content = f"""
-        <?xml version="1.0" ?>
-        <sdf version="1.6">
-          <model name="{name}">
-            <static>true</static>
-            <link name="link">
-              <pose>{x} {y} 2.5 0 0 0</pose>
-              <collision name="collision">
-                <geometry>
-                  <cylinder><radius>0.1</radius><length>5.0</length></cylinder>
-                </geometry>
-              </collision>
-              <visual name="visual">
-                <geometry>
-                  <cylinder><radius>0.1</radius><length>5.0</length></cylinder>
-                </geometry>
-                <material>
-                  <ambient>0.8 0.1 0.1 1</ambient>
-                  <diffuse>0.8 0.1 0.1 1</diffuse>
-                </material>
-              </visual>
-            </link>
-          </model>
-        </sdf>""".replace('\n', '').replace('"', '\\"') # Flatten for CLI
+        # FIX: Assign processed min_ranges to extracted_row and flip direction
+        self.extracted_row = np.flip(min_ranges)
         
-        # Gazebo Sim Create command
+        # Log occasionally at DEBUG level to avoid console spam
+        if self.laser_done_cnt % 100 == 0:
+             self.node.get_logger().debug(f"LiDAR Update #{self.laser_done_cnt}: Min Range = {np.min(self.extracted_row):.2f}")
+
+    def spawn_ring(self, name, x, y, yaw):
+        """Spawn the ring obstacle at (x, y) orientation yaw in Gazebo Sim."""
+        sdf_path = "/home/anas/drone_sitl_ws/src/RL_research_workspace/src/f4_project/urdf/ring_obstacle.sdf"
+        
+        # Use ros_gz_sim to correctly parse the file and place it at (x, y, yaw)
         cmd = [
-            'gz', 'service', '-s', '/world/forest/create',
-            '--reqtype', 'gz.msgs.EntityFactory',
-            '--reptype', 'gz.msgs.Boolean',
-            '--timeout', '300',
-            '--req', f'sdf: "{sdf_content}", name: "{name}"'
+            'ros2', 'run', 'ros_gz_sim', 'create',
+            '-file', sdf_path,
+            '-name', name,
+            '-x', str(x),
+            '-y', str(y),
+            '-z', '0.0',
+            '-Y', str(yaw)
         ]
         
         try:
-            subprocess.run(cmd, capture_output=True, check=False)
-            self.spawned_obstacles.append(name)
-            print(f"DEBUG: Spawned {name} via GZ service at ({x:.2f}, {y:.2f})")
+            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if res.returncode == 0:
+                self.spawned_obstacles.append(name)
+                print(f"DEBUG: Spawned {name} via ros_gz_sim at ({x:.2f}, {y:.2f})")
+            else:
+                print(f"ERROR: Failed to spawn {name}. \nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
         except Exception as e:
-            print(f"ERROR spawning {name}: {e}")
+            print(f"ERROR running ros_gz_sim for {name}: {e}")
 
     def spawn_goal_marker(self, x, y):
         """Spawn a visual green disk at the goal location in Gazebo Sim."""
@@ -381,6 +384,10 @@ class DroneGazeboEnv(gym.Env):
         ranges = list(data.ranges)
         return ranges
 
+    def vehicle_status_callback(self, msg):
+        self.nav_state = msg.nav_state
+        self.arming_state = msg.arming_state
+
     def reset(self,seed=None,options=None):
         if options is not None and "goal_pos" in options:
              goal_pos = options["goal_pos"]
@@ -389,16 +396,26 @@ class DroneGazeboEnv(gym.Env):
 
         self.control_mode_position = True
         
-        # Wait a tiny bit longer to ensure ROS2 subscribers have populated initial data
+        # Wait for ROS2 subscribers to populate valid attitude data
         time.sleep(1.0)
-
+        
+        # Spin-wait until we have valid NED yaw from PX4 (not NaN)
+        wait_start = time.time()
+        while math.isnan(self.raw_ned_yaw) and (time.time() - wait_start) < 5.0:
+            time.sleep(0.1)
+        
         # Capture the drone's current position and yaw as the local relative origin
         self.start_east = self.pose.position.x
         self.start_north = self.pose.position.y
         self.start_yaw = self.trueYaw
+        
+        # Lock the NED yaw at this exact moment — this is what PX4 will hold
+        self.locked_ned_yaw = self.raw_ned_yaw
+        
+        print(f"DEBUG RESET: start_yaw(ENU)={math.degrees(self.start_yaw):.1f}deg, locked_ned_yaw={math.degrees(self.locked_ned_yaw):.1f}deg")
+        print(f"DEBUG RESET: start_pos=({self.start_east:.2f}, {self.start_north:.2f})")
 
         # Handle Offboard/Arm/Takeoff
-        # First send setpoints
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
         
@@ -407,44 +424,32 @@ class DroneGazeboEnv(gym.Env):
         pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
         # NED array: [North, East, Down]
         pos_cmd.position = [self.start_north, self.start_east, -1.5] 
+        pos_cmd.yaw = self.locked_ned_yaw
         
-        # Maintain perfect heading by feeding PX4 its own current raw NED yaw. 
-        # If no data has arrived yet, use NaN to tell PX4 to natively ignore yaw control.
-        pos_cmd.yaw = self.raw_ned_yaw
-        yaw_display = pos_cmd.yaw if not math.isnan(pos_cmd.yaw) else 0.0
-        
-        print(f"Takeoff locked to: N:{self.start_north:.2f}, E:{self.start_east:.2f}, YAW:{yaw_display:.2f} rad")
+        print(f"Takeoff locked to: N:{self.start_north:.2f}, E:{self.start_east:.2f}, YAW:{math.degrees(self.start_yaw):.1f}deg")
         self.publisher_trajectory.publish(pos_cmd)
 
-        # Wait until we are close to 0,0
+        # Wait until we are close to takeoff target
         start_wait = time.time()
-        # Initial wait for mode switch
         time.sleep(1.0)
-        
-        # Loop to ensure we reach the start position
         while (time.time() - start_wait) < 8.0:
-             # Check XY distance relative to start
              dist_to_start = math.sqrt((self.vehicle_local_position[0] - self.start_east)**2 + (self.vehicle_local_position[1] - self.start_north)**2)
-             # Check Z distance (should be close to 1.5m -> -1.5 in NED = 1.5 in ENU)
-             # self.vehicle_local_position is ENU
              dist_z = abs(self.vehicle_local_position[2] - 1.5)
              
              if dist_to_start < 0.5 and dist_z < 0.5:
                  break
              
-             # Keep publishing setpoint (needed for offboard mode validity)
              pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
              self.publisher_trajectory.publish(pos_cmd)
              
-             # Also re-arm/re-mode if disarmed unexpectedly
              if self.arming_state != VehicleStatus.ARMING_STATE_ARMED:
                   self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
                   self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
                   
              time.sleep(0.1)
-             
-        print("Takeoff target reached. Stabilizing...")
-        time.sleep(2.0)
+              
+        print("Takeoff complete. Stabilizing...")
+        time.sleep(1.0)
 
         self.goal_reached = False
         self.overshoot = False
@@ -472,20 +477,26 @@ class DroneGazeboEnv(gym.Env):
         heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
         heading_norm = heading_diff / math.pi
         
-        # Deviation from setpoint (current position - target setpoint)
-        dev_x = self.target_pos[0] - self.pose.position.x
-        dev_y = self.target_pos[1] - self.pose.position.y
+        # Deviation from GLOBAL GOAL
+        dx_global = self.goal[0] - self.pose.position.x
+        dy_global = self.goal[1] - self.pose.position.y
         
+        # Transform offsets into the Drone's LOCAL Body Frame (matching training env)
+        # dev_x = Forward offset, dev_y = Lateral (Left) offset
+        dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
+        dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
+
+        # Normalization Patch: 11.0 for dist, 8.0 for world offsets (matches training env)
         self.goal_data = np.array([
             self.last_action[0], 
             self.last_action[1], 
-            self.distance / 15.0, 
+            self.distance / 11.0, 
             heading_norm, 
-            dev_x / self.world_size, 
-            dev_y / self.world_size
+            dev_x_local / 8.0, 
+            dev_y_local / 8.0
         ], dtype=np.float64)
-
-        state =  np.append(laser_combination_level,self.goal_data)
+# State dim = 128 (laser) + 6 (goal info) = 134
+        state =  np.append(self.extracted_row,self.goal_data)
         self.previous_error = 0.0
         
         self.ep_time = 0
@@ -500,37 +511,35 @@ class DroneGazeboEnv(gym.Env):
         truncated = False
 
         # Holonomic Translational Control
-        # Action[0] is forward/backward -> mapped to [-0.4, 0.4]
-        move_fwd = float(action[0]) * 0.1
-        # Action[1] is left/right -> mapped to [-0.4, 0.4]
-        # Using rotation matrix where positive action[1] is lateral LEFT
-        move_lat = float(action[1]) * 0.1
+        # Action[0] is forward/backward -> mapped to [-0.05, 0.05] (matches reference physics)
+        move_fwd = float(action[0]) * 0.01
+        # Action[1] is Right/Left -> Model trained such that +1.0 is RIGHT
+        # In ENU, negative move_lat moves South (Right of East)
+        move_lat = float(action[1]) * -0.01
         
-        # Current Position (ENU)
-        current_east = self.vehicle_local_position[0]
-        current_north = self.vehicle_local_position[1]
-        target_up = 1.5 # Fixed altitude ENU
+        # Fixed altitude ENU
+        target_up = 1.5 
         
-        # Current Yaw (ENU)
-        current_yaw = self.trueYaw
+        # ALWAYS use the locked takeoff yaw to map actions to perfectly straight grid axes
+        locked_enu_yaw = self.start_yaw
         
-        # Rotate movement into ENU frame
-        # Forward axis: (cos(yaw), sin(yaw))
-        # Lateral axis (Left): (-sin(yaw), cos(yaw))
-        delta_east = move_fwd * math.cos(current_yaw) - move_lat * math.sin(current_yaw)
-        delta_north = move_fwd * math.sin(current_yaw) + move_lat * math.cos(current_yaw)
+        # Rotate movement into the locked ENU frame
+        delta_east = move_fwd * math.cos(locked_enu_yaw) - move_lat * math.sin(locked_enu_yaw)
+        delta_north = move_fwd * math.sin(locked_enu_yaw) + move_lat * math.cos(locked_enu_yaw)
 
-        target_east = current_east + delta_east
-        target_north = current_north + delta_north
-        target_yaw = current_yaw # Maintain heading
+        # Purely integrate target position (never read current pos, preventing runaway feedback)
+        # self.target_pos is cleanly initialized at self.start_east/north in reset()
+        target_east = self.target_pos[0] + delta_east
+        target_north = self.target_pos[1] + delta_north
+        target_yaw = locked_enu_yaw # Maintain heading
 
         # Create Setpoint (NED frame required for PX4)
         vel_cmd = TrajectorySetpoint()
         vel_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
         vel_cmd.position = [target_north, target_east, -target_up]
         
-        # Maintain heading identically to takeoff
-        vel_cmd.yaw = self.raw_ned_yaw
+        # Maintain the initial takeoff heading strictly
+        vel_cmd.yaw = self.locked_ned_yaw
 
         self.publisher_trajectory.publish(vel_cmd)
         
@@ -549,20 +558,43 @@ class DroneGazeboEnv(gym.Env):
         heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
         heading_norm = heading_diff / math.pi
         
-        # Deviation from setpoint (current position - target setpoint)
-        dev_x = self.target_pos[0] - self.pose.position.x
-        dev_y = self.target_pos[1] - self.pose.position.y
+        # Deviation from GLOBAL GOAL
+        dx_global = self.goal[0] - self.pose.position.x
+        dy_global = self.goal[1] - self.pose.position.y
         
+        # Transform offsets into the Drone's LOCAL Body Frame
+        # Correcting for NED model: dev_y should be positive towards RIGHT
+        dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
+        dev_y_local_enu = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
+        dev_y_local_ned = -1.0 * dev_y_local_enu # Mirror Y-axis (Right is positive)
+
+        # Invert Heading Norm for NED (Clockwise Positive)
+        heading_diff = self.goal_heading - self.trueYaw
+        heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
+        heading_norm_ned = -1.0 * (heading_diff / math.pi)
+
+        # Diagnostics: Print alignment info every 20 steps
+        if self.laser_done_cnt % 20 == 0:
+            print(f"\n--- DEBUG HEADING (FRD BRIDGE) ---")
+            print(f"Goal ENU: ({self.goal[0]:.2f}, {self.goal[1]:.2f})")
+            print(f"Yaw (deg): {math.degrees(self.trueYaw):.1f}")
+            print(f"Local Offset Fwd: {dev_x_local:.2f}")
+            print(f"Local Offset Right: {dev_y_local_ned:.2f}")
+            print(f"Heading Norm (CW+): {heading_norm_ned:.2f}")
+            print(f"Action (Fwd, Right): ({action[0]:.2f}, {action[1]:.2f})")
+            print(f"----------------------\n")
+
+        # Normalization Patch: 11.0 for dist, 8.0 for world offsets (matches training env)
         self.goal_data = np.array([
             self.last_action[0], 
             self.last_action[1], 
-            self.distance / 15.0, 
-            heading_norm, 
-            dev_x / self.world_size, 
-            dev_y / self.world_size
+            self.distance / 11.0, 
+            heading_norm_ned, 
+            dev_x_local / 8.0, 
+            dev_y_local_ned / 8.0
         ], dtype=np.float64)
         
-        state =  np.append(laser_combination_level,self.goal_data)
+        state =  np.append(self.extracted_row,self.goal_data)
         # print(state)
 
         if(self.ep_time > 1000):
@@ -581,6 +613,25 @@ class DroneGazeboEnv(gym.Env):
         
         return state, reward, self.done, truncated, {"reached":self.goal_reached}
   
+    def close(self):
+        if self._is_closed:
+            return
+        self._is_closed = True
+        
+        print("Closing Environment and ROS2 Node...")
+        if hasattr(self, 'executor'):
+            self.executor.shutdown()
+        
+        if hasattr(self, 'et'):
+            self.et.join(timeout=2.0)
+            
+        if hasattr(self, 'node'):
+            self.node.destroy_node()
+            
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
     def render(self):
         pass
@@ -666,36 +717,45 @@ class DroneGazeboEnv(gym.Env):
                 self.goal = [self.start_east + offset_east, self.start_north + offset_north]
                 goal_ok = self.check_pos_goal(self.goal[0],self.goal[1])
 
-        # 2. Spawn cylinders along the direct path to the goal
+        # 2. Spawn ring obstacles along the direct path to the goal
         dx = self.goal[0] - self.start_east
         dy = self.goal[1] - self.start_north
         path_dist = math.sqrt(dx**2 + dy**2)
+        base_yaw = math.atan2(dy, dx)
         
-        if path_dist > 1.0:
-            # Use fixed intervals so they are spread out along the route
-            # rather than purely random clumps
-            intervals = [0.15, 0.30, 0.45, 0.60, 0.75]
-            for i, base_frac in enumerate(intervals):
-                 obs_name = f"cylinder_{i}"
-                 # Add small jitter to the base interval
-                 frac = base_frac + random.uniform(-0.05, 0.05)
-                 
-                 # Calculate perpendicular vector for lateral jitter
-                 perp_x = -dy / path_dist
-                 perp_y = dx / path_dist
-                 
-                 jitter = random.uniform(-1.0, 1.0)
-                 
-                 ox = self.start_east + frac * dx + jitter * perp_x
-                 oy = self.start_north + frac * dy + jitter * perp_y
-                 
-                 # Ensure obstacle is not too close to the drone's start (min 1.5m distance)
-                 dist_from_start = math.sqrt((ox - self.start_east)**2 + (oy - self.start_north)**2)
-                 if dist_from_start > 1.5:
-                      self.spawn_cylinder(obs_name, ox, oy)
-                 else:
-                      print(f"DEBUG: Skipping {obs_name} - too close to drone ({dist_from_start:.2f}m)")
-
+        # 2. Spawn 5 random ring obstacles in an 8x8 area around the drone
+        dx = self.goal[0] - self.start_east
+        dy = self.goal[1] - self.start_north
+        
+        num_obstacles = 5
+        spawned_count = 0
+        attempts = 0
+        
+        while spawned_count < num_obstacles and attempts < 50:
+             attempts += 1
+             # Sample local coordinates within an 8x8 area
+             local_fwd = random.uniform(-4.0, 4.0)
+             local_left = random.uniform(-4.0, 4.0)
+             
+             # Rotate offsets by the drone's starting yaw to align the area
+             offset_east = local_fwd * math.cos(self.start_yaw) - local_left * math.sin(self.start_yaw)
+             offset_north = local_fwd * math.sin(self.start_yaw) + local_left * math.cos(self.start_yaw)
+             
+             ox = self.start_east + offset_east
+             oy = self.start_north + offset_north
+             
+             # Random orientation (fully random 360 degrees)
+             yaw = random.uniform(-math.pi, math.pi)
+             
+             dist_from_start = math.sqrt((ox - self.start_east)**2 + (oy - self.start_north)**2)
+             dist_from_goal = math.sqrt((ox - self.goal[0])**2 + (oy - self.goal[1])**2)
+             
+             # Enforce safe margins from start and goal
+             if dist_from_start > 1.0 and dist_from_goal > 1.0:
+                  obs_name = f"ring_{spawned_count}"
+                  self.spawn_ring(obs_name, ox, oy, yaw)
+                  spawned_count += 1
+                  
         time.sleep(0.1)
 
         # Publish marker in ROS2 and Gazebo

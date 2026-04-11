@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 import os
 import sys
 from glob import glob
@@ -14,7 +14,11 @@ package_name = 'f4_project'
 setup(
     name=package_name,
     version='0.0.0',
-    packages=[package_name],
+    packages=find_packages(),
+    include_package_data=True,
+    package_data={
+        'f4_project.TD3': ['models/*'],
+    },
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -31,7 +35,8 @@ setup(
     license='TODO: License declaration',
     entry_points={
         'console_scripts': [
-            'reset_odom = f4_project.reset_odom_mobile:main',   
+            'reset_odom = f4_project.reset_odom_mobile:main',
+            'test_td3 = f4_project.TD3.test_td3:main',
         ],
     },
 )
