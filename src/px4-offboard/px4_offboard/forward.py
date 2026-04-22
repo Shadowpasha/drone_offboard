@@ -102,6 +102,10 @@ class OffboardControl(Node):
         self.speed = self.get_parameter('speed').value
         self.hold_duration = self.get_parameter('hold_duration').value
         self.forward_distance = self.get_parameter('forward_distance').value
+        self.declare_parameter('takeoff_speed', 0.05) # m/s (maximum)
+        self.takeoff_speed = self.get_parameter('takeoff_speed').value
+        self.takeoff_acceleration = 0.001 # m/s^2
+        self.current_takeoff_speed = 0.001 # m/s (starting speed)
         self.dt = 0.05 # 20Hz timer
         self.step_size = self.speed * self.dt # Distance to move per loop
 
@@ -203,12 +207,26 @@ class OffboardControl(Node):
                 self.offboard_setpoint_counter += 1
 
         elif self.flight_state == "TAKEOFF":
+            # Accelerate the takeoff speed
+            if self.current_takeoff_speed < self.takeoff_speed:
+                self.current_takeoff_speed += self.takeoff_acceleration * self.dt
+            
+            # Smoothly interpolate active_setpoint_z towards target altitude
+            target_z = self.start_pos_z - self.altitude
+            dz = target_z - self.active_setpoint_z
+            
+            step = self.current_takeoff_speed * self.dt
+            if abs(dz) > step:
+                self.active_setpoint_z += np.sign(dz) * step
+            else:
+                self.active_setpoint_z = target_z
+
             # Command takeoff to altitude
             trajectory_msg = TrajectorySetpoint()
             trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
             trajectory_msg.position[0] = self.start_pos_x
             trajectory_msg.position[1] = self.start_pos_y
-            trajectory_msg.position[2] = self.start_pos_z - self.altitude
+            trajectory_msg.position[2] = self.active_setpoint_z
             trajectory_msg.yaw = self.target_yaw
             self.publisher_trajectory.publish(trajectory_msg)
 
@@ -220,11 +238,28 @@ class OffboardControl(Node):
             
             self.offboard_setpoint_counter += 1
 
-            # Monitor altitude to move to movement phase
+            # Monitor altitude to move to hold phase
             dist_z = abs(self.current_pos_z - (self.start_pos_z - self.altitude))
-            if dist_z < 0.2:
+            if dist_z < 0.1:
+                self.flight_state = "HOLD_AFTER_TAKEOFF"
+                self.get_logger().info("Altitude reached. Holding for stability.")
+                self.state_timer_start = self.get_clock().now().nanoseconds / 1e9
+
+        elif self.flight_state == "HOLD_AFTER_TAKEOFF":
+            # Maintain altitude
+            trajectory_msg = TrajectorySetpoint()
+            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+            trajectory_msg.position[0] = self.start_pos_x
+            trajectory_msg.position[1] = self.start_pos_y
+            trajectory_msg.position[2] = self.active_setpoint_z
+            trajectory_msg.yaw = self.target_yaw
+            self.publisher_trajectory.publish(trajectory_msg)
+
+            # Wait for hold_duration (using the same parameter)
+            current_time = self.get_clock().now().nanoseconds / 1e9
+            if (current_time - self.state_timer_start) > 2.0: # 2 second hold for stability
                 self.flight_state = "MOVE_FORWARD"
-                self.get_logger().info("Altitude reached. Moving forward.")
+                self.get_logger().info("Stability hold complete. Moving forward.")
                 self.state_timer_start = self.get_clock().now().nanoseconds / 1e9
 
         elif self.flight_state == "MOVE_FORWARD":
@@ -253,12 +288,42 @@ class OffboardControl(Node):
 
             # Check if we have arrived at the final target
             if dist < 0.05:
-                # Wait for hold_duration before landing
+                # Wait for hold_duration before descending
                 current_time = self.get_clock().now().nanoseconds / 1e9
                 if (current_time - self.state_timer_start) > self.hold_duration:
-                    self.flight_state = "LANDING"
-                    self.get_logger().info("Target reached. Landing.")
-                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+                    self.flight_state = "DESCENDING"
+                    self.get_logger().info("Target reached. Descending slowly.")
+                    self.current_takeoff_speed = 0.1 # Re-use for descent speed
+
+        elif self.flight_state == "DESCENDING":
+            # Smoothly interpolate active_setpoint_z towards ground (start_pos_z)
+            target_z = self.start_pos_z - 0.1 # Aim for 10cm above ground
+            dz = target_z - self.active_setpoint_z
+            
+            # Accelerate the descent slightly
+            if self.current_takeoff_speed < self.takeoff_speed:
+                self.current_takeoff_speed += self.takeoff_acceleration * self.dt
+
+            step = self.current_takeoff_speed * self.dt
+            if abs(dz) > step:
+                self.active_setpoint_z += np.sign(dz) * step
+            else:
+                self.active_setpoint_z = target_z
+
+            # Publish the sliding active_setpoint
+            trajectory_msg = TrajectorySetpoint()
+            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+            trajectory_msg.position[0] = self.active_setpoint_x
+            trajectory_msg.position[1] = self.active_setpoint_y
+            trajectory_msg.position[2] = self.active_setpoint_z
+            trajectory_msg.yaw = self.target_yaw
+            self.publisher_trajectory.publish(trajectory_msg)
+
+            # Once we are low enough, trigger final autonomous landing
+            if abs(self.current_pos_z - target_z) < 0.1:
+                self.flight_state = "LANDING"
+                self.get_logger().info("Final approach. Landing.")
+                self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
 
         elif self.flight_state == "LANDING":
             # Wait for disarm

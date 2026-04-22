@@ -22,9 +22,14 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 import os
 import cv2
-from px4_msgs.msg import VehicleAttitude, VehicleLocalPosition, VehicleOdometry, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
+from px4_msgs.msg import VehicleOdometry, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 from rclpy.clock import Clock
 import subprocess
+import multiprocessing
+try:
+    from .visualizer import start_visualizer
+except ImportError:
+    from visualizer import start_visualizer
 
 
 class DroneGazeboEnv(gym.Env):
@@ -66,16 +71,10 @@ class DroneGazeboEnv(gym.Env):
             depth=10
         )
 
-        self.attitude_sub_px4 = self.node.create_subscription(
-            VehicleAttitude,
-            "/fmu/out/vehicle_attitude",
-            self.vehicle_attitude_callback,
-            qos_profile_sub,
-        )
-        self.local_position_sub_px4 = self.node.create_subscription(
+        self.odometry_sub = self.node.create_subscription(
             VehicleOdometry,
             "/fmu/out/vehicle_odometry",
-            self.vehicle_local_position_callback,
+            self.vehicle_odometry_callback,
             qos_profile_sub,
         )
         self.status_sub_px4 = self.node.create_subscription(
@@ -104,9 +103,9 @@ class DroneGazeboEnv(gym.Env):
         self.first_reset  = True
         self.goal = [random.uniform(-3.5, 3.5),random.uniform(-4.0, 4.0)]
          
-        self.prev_distance = math.sqrt(math.pow(self.goal[0],2) + math.pow(self.goal[1],2))
+        self.prev_distance = 0.0  # Real value set in reset() after randomize_trees()
         self.prev_closest_laser = 5.0
-        self.distance = self.prev_distance
+        self.distance = 0.0
         self.goal_reached = False
         self.overshoot = False
         self.penalty = 0.0
@@ -140,7 +139,7 @@ class DroneGazeboEnv(gym.Env):
         self.et = threading.Thread(target=self.node_spin)
         self.et.start()
         
-        self.close = False
+        self._is_closed_env = False
         self.laser_ranges = np.zeros(10)
         self.laser_ranges_top = np.zeros(10)
         self.laser_ranges_bottom = np.zeros(10)
@@ -152,6 +151,7 @@ class DroneGazeboEnv(gym.Env):
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
         self.vehicle_local_velocity = np.array([0.0, 0.0, 0.0])
         self.last_local_pos_update = 0.0
+        self.pos_received = False
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.arming_state = VehicleStatus.ARMING_STATE_DISARMED
@@ -169,6 +169,17 @@ class DroneGazeboEnv(gym.Env):
         self.last_action = np.zeros(2) # [last_action_x, last_action_y]
         self.world_size = 15.0 # Normalization constant for world-frame distances
         self._is_closed = False
+        
+        # Takeoff/Landing parameters
+        self.takeoff_speed = 0.05 # m/s (maximum)
+        self.takeoff_acceleration = 0.001 # m/s^2
+        self.current_z_setpoint = 0.0
+        self.dt = 0.05 # Loop rate in reset/land
+
+        # Visualization setup
+        self.viz_queue = multiprocessing.Queue()
+        self.viz_process = multiprocessing.Process(target=start_visualizer, args=(self.viz_queue,), daemon=True)
+        self.viz_process.start()
 
 
     def cmdloop_callback(self):
@@ -196,9 +207,36 @@ class DroneGazeboEnv(gym.Env):
         self.publisher_vehicle_command.publish(msg)
 
     def land(self):
-        # Sends NAV_LAND command (21)
+        self.node.get_logger().info("Mission complete. Descending slowly before landing...")
+        
+        # Current height (Up is positive in ENU)
+        start_height = self.vehicle_local_position[2]
+        self.current_z_setpoint = start_height
+        current_descent_speed = 0.01 # Start slow
+        
+        # Ramp down to 10cm above ground
+        target_height = 0.1
+        while (self.current_z_setpoint > target_height) and not self._is_closed_env:
+            # Accelerate descent
+            if current_descent_speed < self.takeoff_speed:
+                current_descent_speed += self.takeoff_acceleration
+            
+            self.current_z_setpoint -= current_descent_speed
+            if self.current_z_setpoint < target_height:
+                self.current_z_setpoint = target_height
+            
+            # Create Setpoint (NED: Down is negative Z)
+            pos_cmd = TrajectorySetpoint()
+            pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
+            pos_cmd.position = [self.vehicle_local_position[1], self.vehicle_local_position[0], -self.current_z_setpoint]
+            pos_cmd.yaw = self.locked_ned_yaw
+            self.publisher_trajectory.publish(pos_cmd)
+            
+            time.sleep(self.dt)
+            
+        # Final autonomous landing
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-        self.node.get_logger().info("Landing command sent.")
+        self.node.get_logger().info("Final approach. Landing command sent.")
 
     def get_laser_scan(self, msg):
         if self.laser_done_cnt == 0:
@@ -206,10 +244,13 @@ class DroneGazeboEnv(gym.Env):
         self.laser_done_cnt += 1
         
         ranges = np.array(msg.ranges)
-        # Vectorized clipping and NaN handling
-        ranges = np.nan_to_num(ranges, nan=12.0, posinf=12.0, neginf=12.0)
+        # Clip and handle NaN/Inf — max range is 12m (matching training env)
+        max_range = 12.0
+        ranges = np.nan_to_num(ranges, nan=max_range, posinf=max_range, neginf=max_range)
+        ranges[ranges == 0] = max_range
+        ranges = np.clip(ranges, 0.0, max_range)
         
-        # Optimized Vectorized Downsampling (Reshape + Min)
+        # Downsample to 128 bins by taking the minimum in each chunk
         num_points = len(ranges)
         points_per_chunk = num_points // 128
         if points_per_chunk > 0:
@@ -218,7 +259,7 @@ class DroneGazeboEnv(gym.Env):
         else:
             min_ranges = np.interp(np.linspace(0, num_points, 128), np.arange(num_points), ranges)
         
-        # LiDAR Arrangement Alignment Patch
+        # Align LiDAR so index 64 = directly ahead of the drone
         angle_range = msg.angle_max - msg.angle_min
         if angle_range > 0:
             front_fraction = (-msg.angle_min) / angle_range
@@ -226,12 +267,18 @@ class DroneGazeboEnv(gym.Env):
             shift = 64 - current_front_idx
             min_ranges = np.roll(min_ranges, shift)
 
-        # FIX: Assign processed min_ranges to extracted_row and flip direction
-        self.extracted_row = np.flip(min_ranges)
+        # Normalize to [0, 1]. 
+        # "BRAVE MODE": Use 0.3m radius and 9.0m scale to make obstacles seem further away.
+        robot_radius = 0.3
+        clearances = np.clip(min_ranges - robot_radius, 0.0, max_range)
         
-        # Log occasionally at DEBUG level to avoid console spam
+        # 9.0 is smaller than training 12.0, making distances look LARGER to the model.
+        # Adding +0.1 further boosts its confidence.
+        self.extracted_row = np.clip((clearances / 9.0) + 0.1, 0.0, 1.0)
+        
+        # Log occasionally
         if self.laser_done_cnt % 100 == 0:
-             self.node.get_logger().debug(f"LiDAR Update #{self.laser_done_cnt}: Min Range = {np.min(self.extracted_row):.2f}")
+             self.node.get_logger().debug(f"LiDAR Update #{self.laser_done_cnt}: Min Norm = {np.min(self.extracted_row):.3f}")
 
     def spawn_ring(self, name, x, y, yaw):
         """Spawn the ring obstacle at (x, y) orientation yaw in Gazebo Sim."""
@@ -301,53 +348,38 @@ class DroneGazeboEnv(gym.Env):
             pass
 
 
-    def vehicle_attitude_callback(self, msg):
-        # Calculate raw MAVLink NED yaw straight from the PX4 quaternion [w, x, y, z]
-        self.raw_ned_yaw = math.atan2(2.0 * (msg.q[0] * msg.q[3] + msg.q[1] * msg.q[2]), 1.0 - 2.0 * (msg.q[2]**2 + msg.q[3]**2))
-        
-        # NED-> ENU transformation for RL state logic
-        q_enu = 1/np.sqrt(2) * np.array([msg.q[0] + msg.q[3], msg.q[1] + msg.q[2], msg.q[1] - msg.q[2], msg.q[0] - msg.q[3]])
-        q_enu /= np.linalg.norm(q_enu)
-        self.vehicle_attitude = q_enu.astype(float)
-        
-        # Update self.pose orientation for existing logic
-        self.pose.orientation.w = self.vehicle_attitude[0]
-        self.pose.orientation.x = self.vehicle_attitude[1]
-        self.pose.orientation.y = self.vehicle_attitude[2]
-        self.pose.orientation.z = self.vehicle_attitude[3]
-        
-        # Update Euler angles for existing logic
-        orientation_q = [self.pose.orientation.x, self.pose.orientation.y, self.pose.orientation.z, self.pose.orientation.w]
-        self.pitch, self.roll, self.trueYaw = euler_from_quaternion(orientation_q)
-
-
-    def vehicle_local_position_callback(self, msg):
-        # NED->ENU transformation for position and velocity using VehicleOdometry arrays
-        # msg.position: [0]=North, [1]=East, [2]=Down
+    def vehicle_odometry_callback(self, msg):
+        # 1. Update position (ENU: msg.position[0]=North, msg.position[1]=East, msg.position[2]=Down)
+        # NED msg: [North, East, Down]
         self.vehicle_local_position[0] = msg.position[1] # East
         self.vehicle_local_position[1] = msg.position[0] # North
         self.vehicle_local_position[2] = -msg.position[2] # Up
         
-        # msg.velocity: [0]=vx(North), [1]=vy(East), [2]=vz(Down)
-        self.vehicle_local_velocity[0] = msg.velocity[1] # vy
-        self.vehicle_local_velocity[1] = msg.velocity[0] # vx
-        self.vehicle_local_velocity[2] = -msg.velocity[2] # vz
-        
-        # Update self.pose position for existing logic
         self.pose.position.x = self.vehicle_local_position[0]
         self.pose.position.y = self.vehicle_local_position[1]
         self.pose.position.z = self.vehicle_local_position[2]
         
-        # Update self.vel for existing logic
-        self.vel.linear.x = self.vehicle_local_velocity[0]
-        self.vel.linear.y = self.vehicle_local_velocity[1]
-        self.vel.linear.z = self.vehicle_local_velocity[2]
+        # 2. Update velocity (ENU)
+        self.vehicle_local_velocity[0] = msg.velocity[1] # vy
+        self.vehicle_local_velocity[1] = msg.velocity[0] # vx
+        self.vehicle_local_velocity[2] = -msg.velocity[2] # vz
 
-        # Calculate distance and heading (reused from position_cb)
+        # 3. Calculate yaw from quaternion (NED: [w, x, y, z])
+        q = msg.q
+        self.raw_ned_yaw = math.atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2]**2 + q[3]**2))
+        
+        # Convert NED yaw (North-Clockwise, 0 at North) to ENU yaw (East-CounterClockwise, 0 at East)
+        # Matching the robust method from real_drone_env.py
+        self.trueYaw = (math.pi / 2.0) - self.raw_ned_yaw
+        self.trueYaw = (self.trueYaw + math.pi) % (2 * math.pi) - math.pi
+        
+        self.pos_received = True
+
+        # Calculate distance and heading
         self.distance = math.sqrt(math.pow((self.goal[0] - self.pose.position.x),2) + math.pow((self.goal[1] - self.pose.position.y),2))
         self.goal_heading = math.atan2((self.goal[1] - self.pose.position.y),self.goal[0]-self.pose.position.x)
         
-        if(abs(self.distance) < 0.3):
+        if(abs(self.distance) < 1.0):
             self.done = True
             self.goal_reached = True
 
@@ -403,6 +435,10 @@ class DroneGazeboEnv(gym.Env):
         wait_start = time.time()
         while math.isnan(self.raw_ned_yaw) and (time.time() - wait_start) < 5.0:
             time.sleep(0.1)
+            
+        # Spin-wait until we have valid position data from PX4
+        while not self.pos_received and (time.time() - wait_start) < 10.0:
+            time.sleep(0.1)
         
         # Capture the drone's current position and yaw as the local relative origin
         self.start_east = self.pose.position.x
@@ -421,35 +457,53 @@ class DroneGazeboEnv(gym.Env):
         
         # Position Command to take off straight up from current location
         pos_cmd = TrajectorySetpoint()
-        pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-        # NED array: [North, East, Down]
-        pos_cmd.position = [self.start_north, self.start_east, -1.5] 
         pos_cmd.yaw = self.locked_ned_yaw
         
-        print(f"Takeoff locked to: N:{self.start_north:.2f}, E:{self.start_east:.2f}, YAW:{math.degrees(self.start_yaw):.1f}deg")
-        self.publisher_trajectory.publish(pos_cmd)
+        # Smooth Takeoff: Ramp altitude from 0 to 1.5m
+        target_altitude = 1.5
+        self.current_z_setpoint = 0.0
+        current_speed = 0.001 # Starting slow
+        
+        print(f"Starting smooth takeoff to {target_altitude}m...")
+        
+        # Loop until the ACTUAL altitude (from odometry) reaches the target
+        while self.vehicle_local_position[2] < (target_altitude - 0.1):
+            # Accelerate the setpoint
+            if current_speed < self.takeoff_speed:
+                current_speed += self.takeoff_acceleration
+            
+            self.current_z_setpoint += current_speed
+            if self.current_z_setpoint > target_altitude:
+                self.current_z_setpoint = target_altitude
+                
+            pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
+            # NED: Down is -Z
+            pos_cmd.position = [self.start_north, self.start_east, -self.current_z_setpoint]
+            self.publisher_trajectory.publish(pos_cmd)
+            
+            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED:
+                self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+                self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
+            
+            time.sleep(self.dt)
 
-        # Wait until we are close to takeoff target
-        start_wait = time.time()
-        time.sleep(1.0)
-        while (time.time() - start_wait) < 8.0:
-             dist_to_start = math.sqrt((self.vehicle_local_position[0] - self.start_east)**2 + (self.vehicle_local_position[1] - self.start_north)**2)
-             dist_z = abs(self.vehicle_local_position[2] - 1.5)
-             
-             if dist_to_start < 0.5 and dist_z < 0.5:
-                 break
-             
-             pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-             self.publisher_trajectory.publish(pos_cmd)
-             
-             if self.arming_state != VehicleStatus.ARMING_STATE_ARMED:
-                  self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
-                  self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
-                  
-             time.sleep(0.1)
+        print("Altitude reached. Holding for stability (2s)...")
+        # Final stability hold
+        hold_start = time.time()
+        while (time.time() - hold_start) < 2.0:
+            pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
+            self.publisher_trajectory.publish(pos_cmd)
+            time.sleep(self.dt)
               
         print("Takeoff complete. Stabilizing...")
         time.sleep(1.0)
+
+        # Update start position and yaw to the actual stabilized values
+        # (Restoring this fix to ensure the goal is relative to current position)
+        self.start_east = self.pose.position.x
+        self.start_north = self.pose.position.y
+        self.start_yaw = self.trueYaw
+        self.locked_ned_yaw = self.raw_ned_yaw
 
         self.goal_reached = False
         self.overshoot = False
@@ -504,34 +558,35 @@ class DroneGazeboEnv(gym.Env):
         self.goal_reached = False
         self.contact = ContactsState()
 
+        # Update Visualizer
+        heading_diff = self.goal_heading - self.trueYaw
+        heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
+        self.viz_queue.put((self.extracted_row, self.distance, heading_diff, dev_x_local, dev_y_local, self.last_action))
+
         return (state, {})
 
     def step(self, action):
         reward = 0.0
         truncated = False
 
-        # Holonomic Translational Control
-        # Action[0] is forward/backward -> mapped to [-0.05, 0.05] (matches reference physics)
+        # Action scale matches training env: action[0]*0.05 = forward, action[1]*0.05 = lateral
+        # Training env: dx = action[0]*0.05, dy = action[1]*0.05
         move_fwd = float(action[0]) * 0.01
-        # Action[1] is Right/Left -> Model trained such that +1.0 is RIGHT
-        # In ENU, negative move_lat moves South (Right of East)
-        move_lat = float(action[1]) * -0.01
-        
-        # Fixed altitude ENU
-        target_up = 1.5 
-        
-        # ALWAYS use the locked takeoff yaw to map actions to perfectly straight grid axes
-        locked_enu_yaw = self.start_yaw
-        
-        # Rotate movement into the locked ENU frame
-        delta_east = move_fwd * math.cos(locked_enu_yaw) - move_lat * math.sin(locked_enu_yaw)
-        delta_north = move_fwd * math.sin(locked_enu_yaw) + move_lat * math.cos(locked_enu_yaw)
+        move_lat = float(action[1]) * 0.01
 
-        # Purely integrate target position (never read current pos, preventing runaway feedback)
+        # Fixed altitude (ENU, positive up)
+        target_up = 1.5
+
+        # trueYaw is ENU yaw (CCW-positive from East).
+        current_yaw = self.trueYaw
+        # Correct ENU body->world rotation:
+        #   East  = fwd*cos(yaw) - lat*sin(yaw)
+        #   North = fwd*sin(yaw) + lat*cos(yaw)
+        delta_east  = move_fwd * math.cos(current_yaw) - move_lat * math.sin(current_yaw)
+        delta_north = move_fwd * math.sin(current_yaw) + move_lat * math.cos(current_yaw)        # Purely integrate target position (never read current pos, preventing runaway feedback)
         # self.target_pos is cleanly initialized at self.start_east/north in reset()
         target_east = self.target_pos[0] + delta_east
         target_north = self.target_pos[1] + delta_north
-        target_yaw = locked_enu_yaw # Maintain heading
 
         # Create Setpoint (NED frame required for PX4)
         vel_cmd = TrajectorySetpoint()
@@ -553,54 +608,42 @@ class DroneGazeboEnv(gym.Env):
         laser_combination_level = self.extracted_row
         self.closest_laser = np.min(laser_combination_level)
         
-        # Construct 6-dim goal data: [Last Action X, Last Action Y, Dist/15, Heading/pi, DevX/15, DevY/15]
+        # Goal observation: heading and local-frame offsets (ENU body frame)
         heading_diff = self.goal_heading - self.trueYaw
         heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
         heading_norm = heading_diff / math.pi
-        
-        # Deviation from GLOBAL GOAL
+
+        # Deviation from GLOBAL GOAL projected into drone's ENU body frame
+        # dev_x_local = Forward offset (positive = goal is ahead)
+        # dev_y_local = Left offset (positive = goal is to the left)
         dx_global = self.goal[0] - self.pose.position.x
         dy_global = self.goal[1] - self.pose.position.y
-        
-        # Transform offsets into the Drone's LOCAL Body Frame
-        # Correcting for NED model: dev_y should be positive towards RIGHT
-        dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
-        dev_y_local_enu = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
-        dev_y_local_ned = -1.0 * dev_y_local_enu # Mirror Y-axis (Right is positive)
+        dev_x_local =  dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
+        dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
-        # Invert Heading Norm for NED (Clockwise Positive)
-        heading_diff = self.goal_heading - self.trueYaw
-        heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
-        heading_norm_ned = -1.0 * (heading_diff / math.pi)
+        # print(f"X: {dev_x_local}, Y: {dev_y_local}")
 
-        # Diagnostics: Print alignment info every 20 steps
-        if self.laser_done_cnt % 20 == 0:
-            print(f"\n--- DEBUG HEADING (FRD BRIDGE) ---")
-            print(f"Goal ENU: ({self.goal[0]:.2f}, {self.goal[1]:.2f})")
-            print(f"Yaw (deg): {math.degrees(self.trueYaw):.1f}")
-            print(f"Local Offset Fwd: {dev_x_local:.2f}")
-            print(f"Local Offset Right: {dev_y_local_ned:.2f}")
-            print(f"Heading Norm (CW+): {heading_norm_ned:.2f}")
-            print(f"Action (Fwd, Right): ({action[0]:.2f}, {action[1]:.2f})")
-            print(f"----------------------\n")
-
-        # Normalization Patch: 11.0 for dist, 8.0 for world offsets (matches training env)
         self.goal_data = np.array([
-            self.last_action[0], 
-            self.last_action[1], 
-            self.distance / 11.0, 
-            heading_norm_ned, 
-            dev_x_local / 8.0, 
-            dev_y_local_ned / 8.0
+            self.last_action[0],
+            self.last_action[1],
+            self.distance / 11.0,
+            heading_norm,
+            dev_x_local / 8.0,
+            dev_y_local / 8.0
         ], dtype=np.float64)
+
         
         state =  np.append(self.extracted_row,self.goal_data)
-        # print(state)
+        # Update Visualizer
+        self.viz_queue.put((self.extracted_row, self.distance, heading_diff, dev_x_local, dev_y_local, self.last_action))
 
         if(self.ep_time > 1000):
             self.done = True
             truncated = True
         self.ep_time+=1
+
+        # print(self.distance)
+
 
         if not self.done:
                 reward = (self.prev_distance - self.distance)
@@ -717,15 +760,7 @@ class DroneGazeboEnv(gym.Env):
                 self.goal = [self.start_east + offset_east, self.start_north + offset_north]
                 goal_ok = self.check_pos_goal(self.goal[0],self.goal[1])
 
-        # 2. Spawn ring obstacles along the direct path to the goal
-        dx = self.goal[0] - self.start_east
-        dy = self.goal[1] - self.start_north
-        path_dist = math.sqrt(dx**2 + dy**2)
-        base_yaw = math.atan2(dy, dx)
-        
         # 2. Spawn 5 random ring obstacles in an 8x8 area around the drone
-        dx = self.goal[0] - self.start_east
-        dy = self.goal[1] - self.start_north
         
         num_obstacles = 5
         spawned_count = 0

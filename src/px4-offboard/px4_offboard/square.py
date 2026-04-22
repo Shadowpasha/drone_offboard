@@ -103,6 +103,12 @@ class SquareOffboardControl(Node):
         self.hold_duration = self.get_parameter('hold_duration').value
         self.square_side = self.get_parameter('square_side').value
         self.step_size = self.speed * self.dt
+        
+        self.declare_parameter('takeoff_speed', 0.05) # m/s (maximum)
+        self.takeoff_speed = self.get_parameter('takeoff_speed').value
+        self.takeoff_acceleration = 0.001 # m/s^2
+        self.current_takeoff_speed = 0.001 # m/s (starting speed)
+        self.active_setpoint_z = 0.0
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.arming_state = VehicleStatus.ARMING_STATE_DISARMED
@@ -219,7 +225,7 @@ class SquareOffboardControl(Node):
         trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         trajectory_msg.position[0] = self.active_setpoint_x
         trajectory_msg.position[1] = self.active_setpoint_y
-        trajectory_msg.position[2] = self.wp_home[2] - self.altitude
+        trajectory_msg.position[2] = self.active_setpoint_z
         trajectory_msg.yaw = self.target_yaw
         self.publisher_trajectory.publish(trajectory_msg)
         return dist
@@ -253,11 +259,26 @@ class SquareOffboardControl(Node):
                     self.flight_state = "TAKEOFF"
                     self.active_setpoint_x = self.wp_home[0]
                     self.active_setpoint_y = self.wp_home[1]
+                    self.active_setpoint_z = self.wp_home[2]
+                    self.current_takeoff_speed = 0.05
                     self.get_logger().info("Waypoints calculated. Taking off.")
 
                 self.offboard_setpoint_counter += 1
 
         elif self.flight_state == "TAKEOFF":
+            # Accelerate takeoff
+            if self.current_takeoff_speed < self.takeoff_speed:
+                self.current_takeoff_speed += self.takeoff_acceleration * self.dt
+            
+            # Update Z setpoint
+            target_z = self.wp_home[2] - self.altitude
+            dz = target_z - self.active_setpoint_z
+            step = self.current_takeoff_speed * self.dt
+            if abs(dz) > step:
+                self.active_setpoint_z += np.sign(dz) * step
+            else:
+                self.active_setpoint_z = target_z
+
             # Command takeoff (Ascend vertical)
             self.publish_setpoint(self.wp_home)
 
@@ -271,10 +292,20 @@ class SquareOffboardControl(Node):
 
             # Monitor altitude
             dist_z = abs(self.current_pos_z - (self.wp_home[2] - self.altitude))
-            if dist_z < 0.2:
+            if dist_z < 0.1:
+                self.flight_state = "HOLD_AFTER_TAKEOFF"
+                self.state_timer_start = current_time
+                self.get_logger().info("Altitude reached. Holding for stability.")
+
+        elif self.flight_state == "HOLD_AFTER_TAKEOFF":
+            # Maintain altitude
+            self.publish_setpoint(self.wp_home)
+            
+            # Wait for 2 seconds
+            if (current_time - self.state_timer_start) > 2.0:
                 self.flight_state = "WAYPOINT_1"
                 self.state_timer_start = current_time
-                self.get_logger().info("Altitude reached. Moving Forward (WP1)")
+                self.get_logger().info("Stability hold complete. Moving Forward (WP1)")
 
         elif self.flight_state == "WAYPOINT_1":
             dist = self.publish_setpoint(self.wp_1)
@@ -304,9 +335,32 @@ class SquareOffboardControl(Node):
             dist = self.publish_setpoint(self.wp_4)
             if dist < 0.05:
                 if (current_time - self.state_timer_start) > self.hold_duration:
-                    self.flight_state = "LANDING"
-                    self.get_logger().info("Square complete. Landing.")
-                    self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+                    self.flight_state = "DESCENDING"
+                    self.get_logger().info("Square complete. Descending slowly.")
+                    self.current_takeoff_speed = 0.1 # Start slow for descent
+
+        elif self.flight_state == "DESCENDING":
+            # Accelerate descent
+            if self.current_takeoff_speed < self.takeoff_speed:
+                self.current_takeoff_speed += self.takeoff_acceleration * self.dt
+                
+            # Smoothly interpolate active_setpoint_z towards ground
+            target_z = self.wp_home[2] - 0.1
+            dz = target_z - self.active_setpoint_z
+            step = self.current_takeoff_speed * self.dt
+            
+            if abs(dz) > step:
+                self.active_setpoint_z += np.sign(dz) * step
+            else:
+                self.active_setpoint_z = target_z
+                
+            self.publish_setpoint(self.wp_home)
+
+            # Once low enough, land
+            if abs(self.current_pos_z - target_z) < 0.1:
+                self.flight_state = "LANDING"
+                self.get_logger().info("Final approach. Landing.")
+                self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
 
         elif self.flight_state == "LANDING":
             if self.arming_state == VehicleStatus.ARMING_STATE_DISARMED:

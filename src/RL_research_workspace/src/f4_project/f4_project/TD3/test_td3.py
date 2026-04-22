@@ -20,13 +20,20 @@ torch.set_num_threads(1)
 try:
     from . import TD3
     from .train_env_disp_mem import DroneGazeboEnv
+    from .real_drone_env import RealDroneEnv
 except (ImportError, ValueError):
     import TD3
     from train_env_disp_mem import DroneGazeboEnv
+    from real_drone_env import RealDroneEnv
 
 gym.register(
     id='GazeboIrisEnv-v0',
     entry_point='f4_project.TD3.train_env_disp_mem:DroneGazeboEnv', 
+)
+
+gym.register(
+    id='RealIrisEnv-v0',
+    entry_point='f4_project.TD3.real_drone_env:RealDroneEnv', 
 )
 
 def eval_policy(policy, env_name, seed, eval_episodes=10):
@@ -64,11 +71,16 @@ def main():
     parser.add_argument("--load_model", default="TD3_360_1236") # Default model name
     parser.add_argument("--episodes", default=1, type=int)
     parser.add_argument("--no_model", action="store_true", help="Run without loading a model (random policy)")
-    parser.add_argument("--goal_x", default=2.0, type=float, help="Specific goal X coordinate")
-    parser.add_argument("--goal_y", default=2.0, type=float, help="Specific goal Y coordinate")
+    parser.add_argument("--goal_x", default=1.0, type=float, help="Local Forward offset")
+    parser.add_argument("--goal_y", default=3.0, type=float, help="Local Left offset")
     parser.add_argument("--random_goal", action="store_true", help="Use random goal instead of the specified fixed goal")
+    parser.add_argument("--real", action="store_true", default=False, help="Use real drone environment instead of simulation")
     
     args = parser.parse_args()
+
+    # Override env if --real is set
+    if args.real:
+        args.env = "RealIrisEnv-v0"
     
     print("---------------------------------------")
     print(f"Testing Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}, Model: {args.load_model}")

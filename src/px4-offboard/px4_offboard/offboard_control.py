@@ -67,16 +67,16 @@ class OffboardControl(Node):
 
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            'fmu/out/vehicle_status',
+            '/fmu/out/vehicle_status',
             self.vehicle_status_callback,
             qos_profile_sub)
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            'fmu/out/vehicle_status_v1',
+            '/fmu/out/vehicle_status_v1',
             self.vehicle_status_callback,
             qos_profile_sub)
-        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, 'fmu/in/offboard_control_mode', qos_profile_pub)
-        self.publisher_trajectory = self.create_publisher(TrajectorySetpoint, 'fmu/in/trajectory_setpoint', qos_profile_pub)
+        self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile_pub)
+        self.publisher_trajectory = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos_profile_pub)
         timer_period = 0.02  # seconds
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
         self.dt = timer_period
@@ -91,6 +91,12 @@ class OffboardControl(Node):
         self.radius = self.get_parameter('radius').value
         self.omega = self.get_parameter('omega').value
         self.altitude = self.get_parameter('altitude').value
+        
+        self.declare_parameter('takeoff_speed', 0.05) # m/s (maximum)
+        self.takeoff_speed = self.get_parameter('takeoff_speed').value
+        self.takeoff_acceleration = 0.001 # m/s^2
+        self.current_takeoff_speed = 0.001 # m/s (starting speed)
+        self.active_setpoint_z = 0.0 # Start at ground level
 
     def vehicle_status_callback(self, msg):
         # TODO: handle NED->ENU transformation
@@ -108,11 +114,24 @@ class OffboardControl(Node):
         offboard_msg.acceleration=False
         self.publisher_offboard_mode.publish(offboard_msg)
         if (self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD and self.arming_state == VehicleStatus.ARMING_STATE_ARMED):
+            # Accelerate the takeoff speed
+            if self.current_takeoff_speed < self.takeoff_speed:
+                self.current_takeoff_speed += self.takeoff_acceleration * self.dt
+
+            # Smoothly interpolate active_setpoint_z towards target altitude
+            target_z = -self.altitude
+            dz = target_z - self.active_setpoint_z
+            
+            step = self.current_takeoff_speed * self.dt
+            if abs(dz) > step:
+                self.active_setpoint_z += np.sign(dz) * step
+            else:
+                self.active_setpoint_z = target_z
 
             trajectory_msg = TrajectorySetpoint()
             trajectory_msg.position[0] = self.radius * np.cos(self.theta)
             trajectory_msg.position[1] = self.radius * np.sin(self.theta)
-            trajectory_msg.position[2] = -self.altitude
+            trajectory_msg.position[2] = self.active_setpoint_z
             self.publisher_trajectory.publish(trajectory_msg)
 
             self.theta = self.theta + self.omega * self.dt
