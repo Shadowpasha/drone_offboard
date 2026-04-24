@@ -106,7 +106,6 @@ class OffboardControl(Node):
         self.takeoff_speed = self.get_parameter('takeoff_speed').value
         self.takeoff_acceleration = 0.001 # m/s^2
         self.current_takeoff_speed = 0.001 # m/s (starting speed)
-        self.dt = 0.05 # 20Hz timer
         self.step_size = self.speed * self.dt # Distance to move per loop
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
@@ -293,7 +292,7 @@ class OffboardControl(Node):
                 if (current_time - self.state_timer_start) > self.hold_duration:
                     self.flight_state = "DESCENDING"
                     self.get_logger().info("Target reached. Descending slowly.")
-                    self.current_takeoff_speed = 0.1 # Re-use for descent speed
+                    self.current_takeoff_speed = 0.001 # Re-use for descent speed
 
         elif self.flight_state == "DESCENDING":
             # Smoothly interpolate active_setpoint_z towards ground (start_pos_z)

@@ -260,7 +260,7 @@ class SquareOffboardControl(Node):
                     self.active_setpoint_x = self.wp_home[0]
                     self.active_setpoint_y = self.wp_home[1]
                     self.active_setpoint_z = self.wp_home[2]
-                    self.current_takeoff_speed = 0.05
+                    self.current_takeoff_speed = 0.001
                     self.get_logger().info("Waypoints calculated. Taking off.")
 
                 self.offboard_setpoint_counter += 1

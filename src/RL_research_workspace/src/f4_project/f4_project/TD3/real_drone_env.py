@@ -22,6 +22,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 import os
 from px4_msgs.msg import VehicleOdometry, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 from rclpy.clock import Clock
+import multiprocessing
+from .visualizer import start_visualizer
 
 class RealDroneEnv(gym.Env):
     def __init__(self):
@@ -135,6 +137,11 @@ class RealDroneEnv(gym.Env):
         self.current_z_setpoint = 0.0
         self.dt = 0.05 
 
+        # Visualizer Setup
+        self.viz_queue = multiprocessing.Queue(maxsize=1)
+        self.viz_proc = multiprocessing.Process(target=start_visualizer, args=(self.viz_queue,))
+        self.viz_proc.daemon = True
+        self.viz_proc.start()
     def cmdloop_callback(self):
         offboard_msg = OffboardControlMode()
         offboard_msg.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
@@ -184,30 +191,33 @@ class RealDroneEnv(gym.Env):
     def get_laser_scan(self, msg):
         self.laser_done_cnt += 1
         ranges = np.array(msg.ranges)
-        # Clip and handle NaN/Inf — max range is 12m
+        # 1. Clip and handle NaN/Inf — max range is 12m (matching training env)
         max_range = 12.0
         ranges = np.nan_to_num(ranges, nan=max_range, posinf=max_range, neginf=max_range)
+        ranges[ranges == 0] = max_range
         ranges = np.clip(ranges, 0.0, max_range)
         
-        # Downsample to 128 bins
-        num_points = len(ranges)
-        points_per_chunk = num_points // 128
-        if points_per_chunk > 0:
-            trimmed_ranges = ranges[:128 * points_per_chunk]
-            min_ranges = trimmed_ranges.reshape(128, points_per_chunk).min(axis=1)
-        else:
-            min_ranges = np.interp(np.linspace(0, num_points, 128), np.arange(num_points), ranges)
+        # 2. Map 270° FOV into 360° virtual scan
+        # Model expects 128 bins over 360° (2.8125° per bin)
+        # SITL LiDAR has 270° FOV -> covers exactly 96 bins (270 / 2.8125)
+        virtual_scan_360 = np.ones(128) * max_range # Default to max range (blind spot)
         
-        # Align LiDAR so index 64 = directly ahead of the drone
-        angle_range = msg.angle_max - msg.angle_min
-        if angle_range > 0:
-            front_fraction = (-msg.angle_min) / angle_range
-            current_front_idx = int(front_fraction * 128) % 128
-            shift = 64 - current_front_idx
-            min_ranges = np.roll(min_ranges, shift)
+        # Downsample real 270° data to 96 bins
+        num_points = len(ranges)
+        if num_points > 0:
+            # Interpolate the 1080 (or whatever) points into 96 bins
+            resampled_270 = np.interp(np.linspace(0, num_points, 96), np.arange(num_points), ranges)
+            
+            # Place resampled data into the virtual scan
+            # Center of 96 bins is index 48. We want this at index 64 (Forward)
+            # So the 96 bins go from index 64-48=16 to 64+48=112
+            virtual_scan_360[16:112] = resampled_270
 
-        # Normalize to [0, 1]. No flip — training env had no flip (index 64 = forward)
-        self.extracted_row = min_ranges / max_range
+        # 3. Standard Normalization (Matches Training)
+        robot_radius = 0.5
+        min_ranges = virtual_scan_360
+        clearances = np.clip(min_ranges - robot_radius, 0.0, max_range)
+        self.extracted_row = clearances / max_range
 
     def vehicle_odometry_callback(self, msg):
         # 1. Update position (ENU: msg.position[0]=North, msg.position[1]=East, msg.position[2]=Down)
@@ -232,7 +242,9 @@ class RealDroneEnv(gym.Env):
         # Convert NED yaw (North-Clockwise) to ENU yaw (East-CounterClockwise)
         # matches training and train_env_disp_mem.py
         self.trueYaw = (math.pi / 2.0) - self.raw_ned_yaw
-        self.trueYaw = (self.trueYaw + math.pi) % (2 * math.pi) - math.pi
+        # Simple wrap
+        while self.trueYaw > math.pi: self.trueYaw -= 2.0 * math.pi
+        while self.trueYaw < -math.pi: self.trueYaw += 2.0 * math.pi
         
         self.pos_received = True
         
@@ -363,17 +375,19 @@ class RealDroneEnv(gym.Env):
         
         heading_diff = self.goal_heading - self.trueYaw
         heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
+        heading_norm = heading_diff / math.pi
         
         dx_global = self.goal[0] - self.pose.position.x
         dy_global = self.goal[1] - self.pose.position.y
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
-        dev_y_local_enu = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
-        dev_y_local_ned = -1.0 * dev_y_local_enu 
+        dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
-        heading_norm_ned = -1.0 * (heading_diff / math.pi)
-
-        self.goal_data = np.array([self.last_action[0], self.last_action[1], self.distance / 11.0, heading_norm_ned, dev_x_local / 8.0, dev_y_local_ned / 8.0], dtype=np.float64)
+        self.goal_data = np.array([self.last_action[0], self.last_action[1], self.distance / 11.0, heading_norm, dev_x_local / 8.0, dev_y_local / 8.0], dtype=np.float64)
         state =  np.append(self.extracted_row, self.goal_data)
+
+        # Update Visualizer
+        if not self.viz_queue.full():
+            self.viz_queue.put((self.extracted_row, self.distance, heading_diff, action, dev_x_local, dev_y_local))
 
         if not self.done:
             reward = (self.prev_distance - self.distance)

@@ -46,7 +46,7 @@ class DroneGazeboEnv(gym.Env):
         self.node = rclpy.create_node("training")
         self.goal_range = 3
         self.obstacle_range = 4.5
-        self.num_obstacles = 5
+        self.num_obstacles = 4
         
         # QoS profiles
         qos_profile_pub = QoSProfile(
@@ -103,12 +103,11 @@ class DroneGazeboEnv(gym.Env):
         self.first_reset  = True
         self.goal = [random.uniform(-3.5, 3.5),random.uniform(-4.0, 4.0)]
          
-        self.prev_distance = 0.0  # Real value set in reset() after randomize_trees()
-        self.prev_closest_laser = 5.0
+        self.prev_distance = 0.0  # Real value set in reset()
         self.distance = 0.0
         self.goal_reached = False
-        self.overshoot = False
-        self.penalty = 0.0
+        self.done = False
+        self.max_steps = 1000
 
         self.image_counter = 0
         self.pitch = 0.0
@@ -167,7 +166,7 @@ class DroneGazeboEnv(gym.Env):
         
         self.target_pos = np.zeros(3) # ENU target setpoint [East, North, Up]
         self.last_action = np.zeros(2) # [last_action_x, last_action_y]
-        self.world_size = 15.0 # Normalization constant for world-frame distances
+        self.world_size = 10.0 # Normalization constant for world-frame distances
         self._is_closed = False
         
         # Takeoff/Landing parameters
@@ -244,37 +243,33 @@ class DroneGazeboEnv(gym.Env):
         self.laser_done_cnt += 1
         
         ranges = np.array(msg.ranges)
-        # Clip and handle NaN/Inf — max range is 12m (matching training env)
+        # 1. Clip and handle NaN/Inf — max range is 12m (matching training env)
         max_range = 12.0
         ranges = np.nan_to_num(ranges, nan=max_range, posinf=max_range, neginf=max_range)
         ranges[ranges == 0] = max_range
         ranges = np.clip(ranges, 0.0, max_range)
         
-        # Downsample to 128 bins by taking the minimum in each chunk
+        # 2. Map 270° FOV into 360° virtual scan
+        # Model expects 128 bins over 360° (2.8125° per bin)
+        # SITL LiDAR has 270° FOV -> covers exactly 96 bins (270 / 2.8125)
+        virtual_scan_360 = np.ones(128) * max_range # Default to max range (blind spot)
+        
+        # Downsample real 270° data to 96 bins
         num_points = len(ranges)
-        points_per_chunk = num_points // 128
-        if points_per_chunk > 0:
-            trimmed_ranges = ranges[:128 * points_per_chunk]
-            min_ranges = trimmed_ranges.reshape(128, points_per_chunk).min(axis=1)
-        else:
-            min_ranges = np.interp(np.linspace(0, num_points, 128), np.arange(num_points), ranges)
-        
-        # Align LiDAR so index 64 = directly ahead of the drone
-        angle_range = msg.angle_max - msg.angle_min
-        if angle_range > 0:
-            front_fraction = (-msg.angle_min) / angle_range
-            current_front_idx = int(front_fraction * 128) % 128
-            shift = 64 - current_front_idx
-            min_ranges = np.roll(min_ranges, shift)
+        if num_points > 0:
+            # Interpolate the 1080 (or whatever) points into 96 bins
+            resampled_270 = np.interp(np.linspace(0, num_points, 96), np.arange(num_points), ranges)
+            
+            # Place resampled data into the virtual scan
+            # Center of 96 bins is index 48. We want this at index 64 (Forward)
+            # So the 96 bins go from index 64-48=16 to 64+48=112
+            virtual_scan_360[16:112] = resampled_270
 
-        # Normalize to [0, 1]. 
-        # "BRAVE MODE": Use 0.3m radius and 9.0m scale to make obstacles seem further away.
-        robot_radius = 0.3
+        # 3. Standard Normalization (Matches Training)
+        robot_radius = 0.5
+        min_ranges = virtual_scan_360
         clearances = np.clip(min_ranges - robot_radius, 0.0, max_range)
-        
-        # 9.0 is smaller than training 12.0, making distances look LARGER to the model.
-        # Adding +0.1 further boosts its confidence.
-        self.extracted_row = np.clip((clearances / 9.0) + 0.1, 0.0, 1.0)
+        self.extracted_row = clearances / max_range
         
         # Log occasionally
         if self.laser_done_cnt % 100 == 0:
@@ -379,7 +374,7 @@ class DroneGazeboEnv(gym.Env):
         self.distance = math.sqrt(math.pow((self.goal[0] - self.pose.position.x),2) + math.pow((self.goal[1] - self.pose.position.y),2))
         self.goal_heading = math.atan2((self.goal[1] - self.pose.position.y),self.goal[0]-self.pose.position.x)
         
-        if(abs(self.distance) < 1.0):
+        if(abs(self.distance) < 0.5):
             self.done = True
             self.goal_reached = True
 
@@ -540,14 +535,14 @@ class DroneGazeboEnv(gym.Env):
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
         dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
-        # Normalization Patch: 11.0 for dist, 8.0 for world offsets (matches training env)
+        # Normalization Patch: 14.14 for dist (10*1.414), 10.0 for world offsets (matches 10x10 world)
         self.goal_data = np.array([
             self.last_action[0], 
             self.last_action[1], 
-            self.distance / 11.0, 
+            self.distance / 14.14, 
             heading_norm, 
-            dev_x_local / 8.0, 
-            dev_y_local / 8.0
+            dev_x_local / 10.0, 
+            dev_y_local / 10.0
         ], dtype=np.float64)
 # State dim = 128 (laser) + 6 (goal info) = 134
         state =  np.append(self.extracted_row,self.goal_data)
@@ -626,10 +621,10 @@ class DroneGazeboEnv(gym.Env):
         self.goal_data = np.array([
             self.last_action[0],
             self.last_action[1],
-            self.distance / 11.0,
+            self.distance / 14.14,
             heading_norm,
-            dev_x_local / 8.0,
-            dev_y_local / 8.0
+            dev_x_local / 10.0,
+            dev_y_local / 10.0
         ], dtype=np.float64)
 
         
@@ -637,22 +632,24 @@ class DroneGazeboEnv(gym.Env):
         # Update Visualizer
         self.viz_queue.put((self.extracted_row, self.distance, heading_diff, dev_x_local, dev_y_local, self.last_action))
 
-        if(self.ep_time > 1000):
+        if(self.ep_time >= self.max_steps):
             self.done = True
             truncated = True
-        self.ep_time+=1
+        self.ep_time += 1
 
         # print(self.distance)
 
 
         if not self.done:
-                reward = (self.prev_distance - self.distance)
+                # Progress toward goal (matches training env)
+                reward = 3.0 * (self.prev_distance - self.distance)
+                # Simple reward: remove proximity penalties or "braveness" terms
                 self.prev_distance = self.distance
         else:
             if(self.goal_reached):
-                reward = 100.0
+                reward = 300.0
             else:
-                reward = -100.0
+                reward = -50.0
         
         return state, reward, self.done, truncated, {"reached":self.goal_reached}
   

@@ -185,7 +185,7 @@ class OffboardControl(Node):
                 if self.offboard_setpoint_counter >= 10:
                     self.flight_state = "TAKEOFF"
                     self.active_setpoint_z = self.start_pos_z
-                    self.current_takeoff_speed = 0.1 # Reset starting speed
+                    self.current_takeoff_speed = 0.001 # Reset starting speed
                     self.get_logger().info(f"Taking off to {self.altitude}m relative to start.")
 
                 self.offboard_setpoint_counter += 1
@@ -236,7 +236,7 @@ class OffboardControl(Node):
                 if (current_time - self.hold_time_start) > self.hold_duration:
                     self.flight_state = "DESCENDING"
                     self.get_logger().info("Holding duration finished. Descending slowly.")
-                    self.current_takeoff_speed = 0.1 # Re-use for descent speed
+                    self.current_takeoff_speed = 0.001 # Re-use for descent speed
 
         elif self.flight_state == "DESCENDING":
             # Smoothly interpolate active_setpoint_z towards ground (start_pos_z)

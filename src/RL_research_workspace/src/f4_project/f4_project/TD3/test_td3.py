@@ -68,11 +68,11 @@ def main():
     parser.add_argument("--policy", default="TD3")
     parser.add_argument("--env", default="GazeboIrisEnv-v0")
     parser.add_argument("--seed", default=0, type=int)
-    parser.add_argument("--load_model", default="TD3_360_1236") # Default model name
+    parser.add_argument("--load_model", default="TD3_360_89123789") # Default model name
     parser.add_argument("--episodes", default=1, type=int)
     parser.add_argument("--no_model", action="store_true", help="Run without loading a model (random policy)")
     parser.add_argument("--goal_x", default=1.0, type=float, help="Local Forward offset")
-    parser.add_argument("--goal_y", default=3.0, type=float, help="Local Left offset")
+    parser.add_argument("--goal_y", default=7.0, type=float, help="Local Left offset")
     parser.add_argument("--random_goal", action="store_true", help="Use random goal instead of the specified fixed goal")
     parser.add_argument("--real", action="store_true", default=False, help="Use real drone environment instead of simulation")
     
