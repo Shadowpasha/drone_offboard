@@ -136,6 +136,7 @@ class RealDroneEnv(gym.Env):
         self.takeoff_acceleration = 0.01 # m/s^2
         self.current_z_setpoint = 0.0
         self.dt = 0.05 
+        self.play_area_limit = 5.0 # ±5m from start (10x10m area)
 
         # Visualizer Setup
         self.viz_queue = multiprocessing.Queue(maxsize=1)
@@ -376,6 +377,13 @@ class RealDroneEnv(gym.Env):
         
         self.target_pos = np.array([target_east, target_north, target_up])
         self.last_action = action
+        
+        # Check boundaries (10x10 area centered at start)
+        if (abs(self.pose.position.x - self.start_east) > self.play_area_limit or 
+            abs(self.pose.position.y - self.start_north) > self.play_area_limit):
+            self.done = True
+            self.node.get_logger().info("Out of bounds! Terminating episode.")
+
         time.sleep(0.05)
         
         heading_diff = self.goal_heading - self.trueYaw
