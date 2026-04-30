@@ -242,9 +242,7 @@ class RealDroneEnv(gym.Env):
         # Convert NED yaw (North-Clockwise) to ENU yaw (East-CounterClockwise)
         # matches training and train_env_disp_mem.py
         self.trueYaw = (math.pi / 2.0) - self.raw_ned_yaw
-        # Simple wrap
-        while self.trueYaw > math.pi: self.trueYaw -= 2.0 * math.pi
-        while self.trueYaw < -math.pi: self.trueYaw += 2.0 * math.pi
+        self.trueYaw = (self.trueYaw + math.pi) % (2 * math.pi) - math.pi
         
         self.pos_received = True
         
@@ -252,7 +250,7 @@ class RealDroneEnv(gym.Env):
         self.distance = math.sqrt(math.pow((self.goal[0] - self.pose.position.x),2) + math.pow((self.goal[1] - self.pose.position.y),2))
         self.goal_heading = math.atan2((self.goal[1] - self.pose.position.y),self.goal[0]-self.pose.position.x)
         
-        if self.distance < 0.3:
+        if self.distance < 0.5:
             self.done = True
             self.goal_reached = True
 
@@ -338,7 +336,14 @@ class RealDroneEnv(gym.Env):
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
         dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
-        self.goal_data = np.array([self.last_action[0], self.last_action[1], self.distance / 11.0, heading_norm, dev_x_local / 8.0, dev_y_local / 8.0], dtype=np.float64)
+        self.goal_data = np.array([
+            self.last_action[0], 
+            self.last_action[1], 
+            self.distance / 14.14, 
+            heading_norm, 
+            dev_x_local / 10.0, 
+            dev_y_local / 10.0
+        ], dtype=np.float64)
         state =  np.append(self.extracted_row, self.goal_data)
         
         self.done = False
@@ -382,7 +387,14 @@ class RealDroneEnv(gym.Env):
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
         dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
-        self.goal_data = np.array([self.last_action[0], self.last_action[1], self.distance / 11.0, heading_norm, dev_x_local / 8.0, dev_y_local / 8.0], dtype=np.float64)
+        self.goal_data = np.array([
+            self.last_action[0], 
+            self.last_action[1], 
+            self.distance / 14.14, 
+            heading_norm, 
+            dev_x_local / 10.0, 
+            dev_y_local / 10.0
+        ], dtype=np.float64)
         state =  np.append(self.extracted_row, self.goal_data)
 
         # Update Visualizer
@@ -390,10 +402,14 @@ class RealDroneEnv(gym.Env):
             self.viz_queue.put((self.extracted_row, self.distance, heading_diff, action, dev_x_local, dev_y_local))
 
         if not self.done:
-            reward = (self.prev_distance - self.distance)
+            # Progress toward goal (matches training env)
+            reward = 3.0 * (self.prev_distance - self.distance)
             self.prev_distance = self.distance
         else:
-            reward = 100.0 if self.goal_reached else -100.0
+            if self.goal_reached:
+                reward = 300.0
+            else:
+                reward = -50.0
         
         return state, reward, self.done, truncated, {"reached":self.goal_reached}
   
