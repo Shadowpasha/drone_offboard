@@ -30,6 +30,7 @@ setup(
                 'square = px4_offboard.square:main',
                 'take_off_land = px4_offboard.take_off_land:main',
                 'visualizer = px4_offboard.visualizer:main',
+                'zigzag = px4_offboard.zigzag:main',
         ],
     },
 )

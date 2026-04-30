@@ -93,7 +93,7 @@ class OffboardControl(Node):
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
         self.dt = timer_period
 
-        self.declare_parameter('altitude', 1.5)
+        self.declare_parameter('altitude', 1.0)
         self.declare_parameter('hold_duration', 10.0)
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
@@ -118,10 +118,10 @@ class OffboardControl(Node):
         self.target_yaw = 0.0
         self.data_valid = False
         
-        self.declare_parameter('takeoff_speed', 0.05) # m/s (maximum)
+        self.declare_parameter('takeoff_speed', 0.1) # m/s (maximum)
         self.takeoff_speed = self.get_parameter('takeoff_speed').value
-        self.takeoff_acceleration = 0.001 # m/s^2
-        self.current_takeoff_speed = 0.001 # m/s (starting speed)
+        self.takeoff_acceleration = 0.01 # m/s^2
+        self.current_takeoff_speed = 0.01 # m/s (starting speed)
         self.active_setpoint_z = 0.0
         self.hold_time_start = None
 
@@ -185,7 +185,6 @@ class OffboardControl(Node):
                 if self.offboard_setpoint_counter >= 10:
                     self.flight_state = "TAKEOFF"
                     self.active_setpoint_z = self.start_pos_z
-                    self.current_takeoff_speed = 0.001 # Reset starting speed
                     self.get_logger().info(f"Taking off to {self.altitude}m relative to start.")
 
                 self.offboard_setpoint_counter += 1

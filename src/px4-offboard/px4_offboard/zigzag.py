@@ -48,10 +48,10 @@ from px4_msgs.msg import VehicleCommand
 from px4_msgs.msg import VehicleOdometry
 
 
-class OffboardControl(Node):
+class ZigzagOffboardControl(Node):
 
     def __init__(self):
-        super().__init__('offboard_control')
+        super().__init__('zigzag_offboard_control')
 
         # QoS profiles
         qos_profile_pub = QoSProfile(
@@ -94,19 +94,21 @@ class OffboardControl(Node):
         self.dt = timer_period
 
         self.declare_parameter('altitude', 1.0)
-        self.declare_parameter('speed', 0.1) # 0.1 m/s as requested
-        self.declare_parameter('hold_duration', 10.0) # Duration for each flight phase
-        self.declare_parameter('forward_distance', 1.0) # Distance to move forward
+        self.declare_parameter('speed', 0.1) # 0.1 m/s
+        self.declare_parameter('hold_duration', 5.0)
+        self.declare_parameter('step_distance', 2.0)
         
         self.altitude = self.get_parameter('altitude').value
         self.speed = self.get_parameter('speed').value
         self.hold_duration = self.get_parameter('hold_duration').value
-        self.forward_distance = self.get_parameter('forward_distance').value
+        self.step_distance = self.get_parameter('step_distance').value
+        self.step_size = self.speed * self.dt
+        
         self.declare_parameter('takeoff_speed', 0.1) # m/s (maximum)
         self.takeoff_speed = self.get_parameter('takeoff_speed').value
         self.takeoff_acceleration = 0.01 # m/s^2
         self.current_takeoff_speed = 0.01 # m/s (starting speed)
-        self.step_size = self.speed * self.dt # Distance to move per loop
+        self.active_setpoint_z = 0.0
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
         self.arming_state = VehicleStatus.ARMING_STATE_DISARMED
@@ -119,21 +121,21 @@ class OffboardControl(Node):
         self.target_yaw = 0.0
         self.data_valid = False
         
-        # Position variables (Initialized to 0, updated by odometry)
+        # Position variables
         self.current_pos_x = 0.0
         self.current_pos_y = 0.0
         self.current_pos_z = 0.0
         
-        self.start_pos_x = 0.0
-        self.start_pos_y = 0.0
-        self.start_pos_z = 0.0
-        
         self.active_setpoint_x = 0.0
         self.active_setpoint_y = 0.0
-        self.active_setpoint_z = 0.0
-
-        self.target_pos_x = 0.0
-        self.target_pos_y = 0.0
+        
+        # Waypoints
+        self.wp_home = np.array([0.0, 0.0, 0.0])
+        self.wp_1 = [0.0, 0.0, 0.0] # Forward
+        self.wp_2 = [0.0, 0.0, 0.0] # Left
+        self.wp_3 = [0.0, 0.0, 0.0] # Forward
+        self.wp_4 = [0.0, 0.0, 0.0] # Right
+        self.wp_5 = [0.0, 0.0, 0.0] # Forward
 
     def vehicle_status_callback(self, msg):
         self.nav_state = msg.nav_state
@@ -146,7 +148,6 @@ class OffboardControl(Node):
         self.current_pos_z = msg.position[2]
         
         # Calculate yaw from quaternion (w, x, y, z)
-        # PX4 msg.q is [w, x, y, z]
         q = msg.q
         self.current_yaw = np.arctan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]))
         self.data_valid = True
@@ -164,6 +165,77 @@ class OffboardControl(Node):
         msg.from_external = True
         self.publisher_vehicle_command.publish(msg)
 
+    def calculate_waypoints(self):
+        """Calculates waypoints: Forward -> Left -> Forward -> Right -> Forward"""
+        # WP0: Home (Takeoff position)
+        self.wp_home = [self.current_pos_x, self.current_pos_y, self.current_pos_z]
+        
+        d = self.step_distance
+        yaw = self.target_yaw
+        cos_y = np.cos(yaw)
+        sin_y = np.sin(yaw)
+
+        # WP1: Forward (Body X+)
+        self.wp_1 = [
+            self.wp_home[0] + d * cos_y,
+            self.wp_home[1] + d * sin_y,
+            self.wp_home[2]
+        ]
+
+        # WP2: Left from WP1 (Body Y-)
+        # North shift = d * sin(yaw)
+        # East shift = -d * cos(yaw)
+        self.wp_2 = [
+            self.wp_1[0] + d * np.sin(yaw),
+            self.wp_1[1] - d * np.cos(yaw),
+            self.wp_home[2]
+        ]
+
+        # WP3: Forward from WP2 (Body X+)
+        self.wp_3 = [
+            self.wp_2[0] + d * cos_y,
+            self.wp_2[1] + d * sin_y,
+            self.wp_home[2]
+        ]
+
+        # WP4: Right from WP3 (Body Y+)
+        # North shift = -d * sin(yaw)
+        # East shift = d * cos(yaw)
+        self.wp_4 = [
+            self.wp_3[0] - d * np.sin(yaw),
+            self.wp_3[1] + d * np.cos(yaw),
+            self.wp_home[2]
+        ]
+
+        # WP5: Forward from WP4 (Body X+)
+        self.wp_5 = [
+            self.wp_4[0] + d * cos_y,
+            self.wp_4[1] + d * sin_y,
+            self.wp_home[2]
+        ]
+
+    def publish_setpoint(self, target_ned):
+        # Smoothly interpolate active_setpoint towards target_ned
+        dx = target_ned[0] - self.active_setpoint_x
+        dy = target_ned[1] - self.active_setpoint_y
+        dist = np.sqrt(dx**2 + dy**2)
+
+        if dist > self.step_size:
+            self.active_setpoint_x += (dx / dist) * self.step_size
+            self.active_setpoint_y += (dy / dist) * self.step_size
+        else:
+            self.active_setpoint_x = target_ned[0]
+            self.active_setpoint_y = target_ned[1]
+
+        trajectory_msg = TrajectorySetpoint()
+        trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+        trajectory_msg.position[0] = self.active_setpoint_x
+        trajectory_msg.position[1] = self.active_setpoint_y
+        trajectory_msg.position[2] = self.active_setpoint_z
+        trajectory_msg.yaw = self.target_yaw
+        self.publisher_trajectory.publish(trajectory_msg)
+        return dist
+
     def cmdloop_callback(self):
         # Publish offboard control modes
         offboard_msg = OffboardControlMode()
@@ -173,63 +245,49 @@ class OffboardControl(Node):
         offboard_msg.acceleration = False
         self.publisher_offboard_mode.publish(offboard_msg)
 
-        # State Machine: PRE_FLIGHT -> TAKEOFF -> MOVE_FORWARD -> LANDING
-        if self.flight_state == "PRE_FLIGHT":
-            # Continuously update start position to current position until we are ready to fly
-            if self.data_valid:
-                self.start_pos_x = self.current_pos_x
-                self.start_pos_y = self.current_pos_y
-                self.start_pos_z = self.current_pos_z
-                self.target_yaw = self.current_yaw
-                
-                # Calculate forward position based on yaw
-                self.target_pos_x = self.start_pos_x + (self.forward_distance * np.cos(self.target_yaw))
-                self.target_pos_y = self.start_pos_y + (self.forward_distance * np.sin(self.target_yaw))
+        current_time = self.get_clock().now().nanoseconds / 1e9
 
-                # 1. Send setpoints matching current position (ground)
+        if self.flight_state == "PRE_FLIGHT":
+            if self.data_valid:
+                self.target_yaw = self.current_yaw
+                self.calculate_waypoints()
+
+                # Send setpoints at current position (ground)
                 trajectory_msg = TrajectorySetpoint()
                 trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-                trajectory_msg.position[0] = self.start_pos_x
-                trajectory_msg.position[1] = self.start_pos_y
-                trajectory_msg.position[2] = self.start_pos_z
+                trajectory_msg.position[0] = self.wp_home[0]
+                trajectory_msg.position[1] = self.wp_home[1]
+                trajectory_msg.position[2] = self.wp_home[2]
                 trajectory_msg.yaw = self.target_yaw
                 self.publisher_trajectory.publish(trajectory_msg)
 
-                # 2. Transition to TAKEOFF after a short buffer
                 if self.offboard_setpoint_counter >= 10:
                     self.flight_state = "TAKEOFF"
-                    self.active_setpoint_x = self.start_pos_x
-                    self.active_setpoint_y = self.start_pos_y
-                    self.active_setpoint_z = self.start_pos_z
-                    self.get_logger().info(f"Taking off. Target vertical: {self.start_pos_z - self.altitude:.2f}m")
+                    self.active_setpoint_x = self.wp_home[0]
+                    self.active_setpoint_y = self.wp_home[1]
+                    self.active_setpoint_z = self.wp_home[2]
+                    self.get_logger().info("Waypoints calculated. Taking off.")
 
                 self.offboard_setpoint_counter += 1
 
         elif self.flight_state == "TAKEOFF":
-            # Accelerate the takeoff speed
+            # Accelerate takeoff
             if self.current_takeoff_speed < self.takeoff_speed:
                 self.current_takeoff_speed += self.takeoff_acceleration * self.dt
             
-            # Smoothly interpolate active_setpoint_z towards target altitude
-            target_z = self.start_pos_z - self.altitude
+            # Update Z setpoint
+            target_z = self.wp_home[2] - self.altitude
             dz = target_z - self.active_setpoint_z
-            
             step = self.current_takeoff_speed * self.dt
             if abs(dz) > step:
                 self.active_setpoint_z += np.sign(dz) * step
             else:
                 self.active_setpoint_z = target_z
 
-            # Command takeoff to altitude
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            trajectory_msg.position[0] = self.start_pos_x
-            trajectory_msg.position[1] = self.start_pos_y
-            trajectory_msg.position[2] = self.active_setpoint_z
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
+            # Command takeoff (Ascend vertical)
+            self.publish_setpoint(self.wp_home)
 
-            # Recurrently spam Arm/Offboard commands until we have actually taken off
+            # Recurrently spam Arm/Offboard commands
             if self.arming_state != VehicleStatus.ARMING_STATE_ARMED or self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
                 if self.offboard_setpoint_counter % 10 == 0:
                     self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
@@ -237,95 +295,87 @@ class OffboardControl(Node):
             
             self.offboard_setpoint_counter += 1
 
-            # Monitor altitude to move to hold phase
-            dist_z = abs(self.current_pos_z - (self.start_pos_z - self.altitude))
+            # Monitor altitude
+            dist_z = abs(self.current_pos_z - (self.wp_home[2] - self.altitude))
             if dist_z < 0.1:
                 self.flight_state = "HOLD_AFTER_TAKEOFF"
+                self.state_timer_start = current_time
                 self.get_logger().info("Altitude reached. Holding for stability.")
-                self.state_timer_start = self.get_clock().now().nanoseconds / 1e9
 
         elif self.flight_state == "HOLD_AFTER_TAKEOFF":
             # Maintain altitude
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            trajectory_msg.position[0] = self.start_pos_x
-            trajectory_msg.position[1] = self.start_pos_y
-            trajectory_msg.position[2] = self.active_setpoint_z
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
+            self.publish_setpoint(self.wp_home)
+            
+            # Wait for 2 seconds
+            if (current_time - self.state_timer_start) > 2.0:
+                self.flight_state = "WAYPOINT_1"
+                self.state_timer_start = current_time
+                self.get_logger().info("Stability hold complete. Moving Forward (WP1)")
 
-            # Wait for hold_duration (using the same parameter)
-            current_time = self.get_clock().now().nanoseconds / 1e9
-            if (current_time - self.state_timer_start) > 2.0: # 2 second hold for stability
-                self.flight_state = "MOVE_FORWARD"
-                self.get_logger().info("Stability hold complete. Moving forward.")
-                self.state_timer_start = self.get_clock().now().nanoseconds / 1e9
-
-        elif self.flight_state == "MOVE_FORWARD":
-            # Smoothly interpolate active_setpoint towards target_pos
-            dx = self.target_pos_x - self.active_setpoint_x
-            dy = self.target_pos_y - self.active_setpoint_y
-            dist = np.sqrt(dx**2 + dy**2)
-
-            if dist > self.step_size:
-                # Move a step towards the goal
-                self.active_setpoint_x += (dx / dist) * self.step_size
-                self.active_setpoint_y += (dy / dist) * self.step_size
-            else:
-                # We are at the goal
-                self.active_setpoint_x = self.target_pos_x
-                self.active_setpoint_y = self.target_pos_y
-
-            # Publish the sliding active_setpoint
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            trajectory_msg.position[0] = self.active_setpoint_x
-            trajectory_msg.position[1] = self.active_setpoint_y
-            trajectory_msg.position[2] = self.start_pos_z - self.altitude
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
-
-            # Check if we have arrived at the final target
+        elif self.flight_state == "WAYPOINT_1":
+            dist = self.publish_setpoint(self.wp_1)
             if dist < 0.05:
-                # Wait for hold_duration before descending
-                current_time = self.get_clock().now().nanoseconds / 1e9
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_2"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Left (WP2)")
+
+        elif self.flight_state == "WAYPOINT_2":
+            dist = self.publish_setpoint(self.wp_2)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_3"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Forward (WP3)")
+
+        elif self.flight_state == "WAYPOINT_3":
+            dist = self.publish_setpoint(self.wp_3)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_4"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Right (WP4)")
+
+        elif self.flight_state == "WAYPOINT_4":
+            dist = self.publish_setpoint(self.wp_4)
+            if dist < 0.05:
+                if (current_time - self.state_timer_start) > self.hold_duration:
+                    self.flight_state = "WAYPOINT_5"
+                    self.state_timer_start = current_time
+                    self.get_logger().info("Moving Forward (WP5)")
+
+        elif self.flight_state == "WAYPOINT_5":
+            dist = self.publish_setpoint(self.wp_5)
+            if dist < 0.05:
                 if (current_time - self.state_timer_start) > self.hold_duration:
                     self.flight_state = "DESCENDING"
-                    self.get_logger().info("Target reached. Descending slowly.")
-                    self.current_takeoff_speed = 0.001 # Re-use for descent speed
+                    self.get_logger().info("Zigzag path complete. Descending slowly.")
+                    self.current_takeoff_speed = 0.1 # Start slow for descent
 
         elif self.flight_state == "DESCENDING":
-            # Smoothly interpolate active_setpoint_z towards ground (start_pos_z)
-            target_z = self.start_pos_z - 0.1 # Aim for 10cm above ground
-            dz = target_z - self.active_setpoint_z
-            
-            # Accelerate the descent slightly
+            # Accelerate descent
             if self.current_takeoff_speed < self.takeoff_speed:
                 self.current_takeoff_speed += self.takeoff_acceleration * self.dt
-
+                
+            # Smoothly interpolate active_setpoint_z towards ground
+            target_z = self.wp_home[2] - 0.1
+            dz = target_z - self.active_setpoint_z
             step = self.current_takeoff_speed * self.dt
+            
             if abs(dz) > step:
                 self.active_setpoint_z += np.sign(dz) * step
             else:
                 self.active_setpoint_z = target_z
+                
+            self.publish_setpoint(self.wp_5)
 
-            # Publish the sliding active_setpoint
-            trajectory_msg = TrajectorySetpoint()
-            trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-            trajectory_msg.position[0] = self.active_setpoint_x
-            trajectory_msg.position[1] = self.active_setpoint_y
-            trajectory_msg.position[2] = self.active_setpoint_z
-            trajectory_msg.yaw = self.target_yaw
-            self.publisher_trajectory.publish(trajectory_msg)
-
-            # Once we are low enough, trigger final autonomous landing
+            # Once low enough, land
             if abs(self.current_pos_z - target_z) < 0.1:
                 self.flight_state = "LANDING"
                 self.get_logger().info("Final approach. Landing.")
                 self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
 
         elif self.flight_state == "LANDING":
-            # Wait for disarm
             if self.arming_state == VehicleStatus.ARMING_STATE_DISARMED:
                 self.flight_state = "FINISHED"
                 self.get_logger().info("Mission Complete.")
@@ -333,11 +383,8 @@ class OffboardControl(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
-    offboard_control = OffboardControl()
-
+    offboard_control = ZigzagOffboardControl()
     rclpy.spin(offboard_control)
-
     offboard_control.destroy_node()
     rclpy.shutdown()
 

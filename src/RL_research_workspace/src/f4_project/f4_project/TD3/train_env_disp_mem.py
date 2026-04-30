@@ -170,8 +170,8 @@ class DroneGazeboEnv(gym.Env):
         self._is_closed = False
         
         # Takeoff/Landing parameters
-        self.takeoff_speed = 0.05 # m/s (maximum)
-        self.takeoff_acceleration = 0.001 # m/s^2
+        self.takeoff_speed = 0.1 # m/s (maximum)
+        self.takeoff_acceleration = 0.01 # m/s^2
         self.current_z_setpoint = 0.0
         self.dt = 0.05 # Loop rate in reset/land
 
@@ -454,10 +454,10 @@ class DroneGazeboEnv(gym.Env):
         pos_cmd = TrajectorySetpoint()
         pos_cmd.yaw = self.locked_ned_yaw
         
-        # Smooth Takeoff: Ramp altitude from 0 to 1.5m
-        target_altitude = 1.5
+        # Smooth Takeoff: Ramp altitude from 0 to 1.0m
+        target_altitude = 1.0
         self.current_z_setpoint = 0.0
-        current_speed = 0.001 # Starting slow
+        current_speed = 0.01 # Starting slow
         
         print(f"Starting smooth takeoff to {target_altitude}m...")
         
@@ -511,7 +511,7 @@ class DroneGazeboEnv(gym.Env):
         self.randomize_trees(goal_pos=goal_pos)
         
         # Track initial target setpoint (matches takeoff height)
-        self.target_pos = np.array([self.start_east, self.start_north, 1.5]) # ENU
+        self.target_pos = np.array([self.start_east, self.start_north, 1.0]) # ENU
         self.last_action = np.zeros(2)
         
         laser_combination_level = self.extracted_row
@@ -570,7 +570,7 @@ class DroneGazeboEnv(gym.Env):
         move_lat = float(action[1]) * 0.01
 
         # Fixed altitude (ENU, positive up)
-        target_up = 1.5
+        target_up = 1.0
 
         # trueYaw is ENU yaw (CCW-positive from East).
         current_yaw = self.trueYaw

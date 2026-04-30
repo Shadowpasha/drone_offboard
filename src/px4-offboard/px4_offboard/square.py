@@ -93,7 +93,7 @@ class SquareOffboardControl(Node):
         self.timer = self.create_timer(timer_period, self.cmdloop_callback)
         self.dt = timer_period
 
-        self.declare_parameter('altitude', 1.5)
+        self.declare_parameter('altitude', 1.0)
         self.declare_parameter('speed', 0.1) # 0.1 m/s
         self.declare_parameter('hold_duration', 5.0)
         self.declare_parameter('square_side', 2.0)
@@ -104,10 +104,10 @@ class SquareOffboardControl(Node):
         self.square_side = self.get_parameter('square_side').value
         self.step_size = self.speed * self.dt
         
-        self.declare_parameter('takeoff_speed', 0.05) # m/s (maximum)
+        self.declare_parameter('takeoff_speed', 0.1) # m/s (maximum)
         self.takeoff_speed = self.get_parameter('takeoff_speed').value
-        self.takeoff_acceleration = 0.001 # m/s^2
-        self.current_takeoff_speed = 0.001 # m/s (starting speed)
+        self.takeoff_acceleration = 0.01 # m/s^2
+        self.current_takeoff_speed = 0.01 # m/s (starting speed)
         self.active_setpoint_z = 0.0
 
         self.nav_state = VehicleStatus.NAVIGATION_STATE_MAX
@@ -260,7 +260,6 @@ class SquareOffboardControl(Node):
                     self.active_setpoint_x = self.wp_home[0]
                     self.active_setpoint_y = self.wp_home[1]
                     self.active_setpoint_z = self.wp_home[2]
-                    self.current_takeoff_speed = 0.001
                     self.get_logger().info("Waypoints calculated. Taking off.")
 
                 self.offboard_setpoint_counter += 1

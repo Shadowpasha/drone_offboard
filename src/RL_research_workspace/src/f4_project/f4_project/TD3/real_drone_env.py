@@ -132,8 +132,8 @@ class RealDroneEnv(gym.Env):
         self.last_action = np.zeros(2) 
         
         # Takeoff/Landing parameters (Smooth/Exponential)
-        self.takeoff_speed = 0.05 # m/s (maximum)
-        self.takeoff_acceleration = 0.001 # m/s^2
+        self.takeoff_speed = 0.1 # m/s (maximum)
+        self.takeoff_acceleration = 0.01 # m/s^2
         self.current_z_setpoint = 0.0
         self.dt = 0.05 
 
@@ -288,9 +288,9 @@ class RealDroneEnv(gym.Env):
         pos_cmd.yaw = self.locked_ned_yaw
         
         # Smooth Takeoff
-        target_altitude = 1.5
+        target_altitude = 1.0
         self.current_z_setpoint = 0.0
-        current_speed = 0.001 
+        current_speed = 0.01 
         
         self.node.get_logger().info(f"Starting smooth takeoff to {target_altitude}m...")
         
@@ -325,7 +325,7 @@ class RealDroneEnv(gym.Env):
         self.start_yaw = self.trueYaw
         self.locked_ned_yaw = self.raw_ned_yaw # Re-lock for consistency
         
-        self.target_pos = np.array([self.start_east, self.start_north, 1.5]) 
+        self.target_pos = np.array([self.start_east, self.start_north, 1.0]) 
         self.last_action = np.zeros(2)
         
         # Observations
@@ -350,9 +350,9 @@ class RealDroneEnv(gym.Env):
         truncated = False
 
         # Action scale matches training env (action[0]*0.05, action[1]*0.05)
-        move_fwd = float(action[0]) * 0.05
-        move_lat = float(action[1]) * 0.05
-        target_up = 1.5 
+        move_fwd = float(action[0]) * 0.01
+        move_lat = float(action[1]) * 0.01
+        target_up = 1.0 
         
         # Standard ENU body->world rotation (matching train_env_disp_mem.py)
         # current_yaw is now ENU East-CCW
