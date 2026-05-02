@@ -165,29 +165,9 @@ class RealDroneEnv(gym.Env):
         self.publisher_vehicle_command.publish(msg)
 
     def land(self):
-        self.node.get_logger().info("Mission complete. Descending slowly before landing...")
-        start_height = self.vehicle_local_position[2]
-        self.current_z_setpoint = start_height
-        current_descent_speed = 0.01 
-        
-        target_height = 0.15 # Slightly higher for safety on real drone
-        while (self.current_z_setpoint > target_height) and not self._is_closed:
-            if current_descent_speed < self.takeoff_speed:
-                current_descent_speed += self.takeoff_acceleration
-            
-            self.current_z_setpoint -= current_descent_speed
-            if self.current_z_setpoint < target_height:
-                self.current_z_setpoint = target_height
-            
-            pos_cmd = TrajectorySetpoint()
-            pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-            pos_cmd.position = [self.vehicle_local_position[1], self.vehicle_local_position[0], -self.current_z_setpoint]
-            pos_cmd.yaw = self.locked_ned_yaw
-            self.publisher_trajectory.publish(pos_cmd)
-            time.sleep(self.dt)
-            
+        self.node.get_logger().info("Mission complete. Sending land command.")
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-        self.node.get_logger().info("Final approach. Landing command sent.")
+        self.node.get_logger().info("Landing command sent.")
 
     def get_laser_scan(self, msg):
         self.laser_done_cnt += 1
@@ -283,29 +263,19 @@ class RealDroneEnv(gym.Env):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
         
+        # Takeoff
+        target_altitude = 1.0
+        self.node.get_logger().info(f"Taking off to {target_altitude}m...")
+        
         pos_cmd = TrajectorySetpoint()
         pos_cmd.yaw = self.locked_ned_yaw
         
-        # Smooth Takeoff
-        target_altitude = 1.0
-        self.current_z_setpoint = 0.0
-        current_speed = 0.01 
-        
-        self.node.get_logger().info(f"Starting smooth takeoff to {target_altitude}m...")
-        
-        while self.current_z_setpoint < target_altitude:
-            if current_speed < self.takeoff_speed:
-                current_speed += self.takeoff_acceleration
-            
-            self.current_z_setpoint += current_speed
-            if self.current_z_setpoint > target_altitude:
-                self.current_z_setpoint = target_altitude
-                
+        while abs(self.vehicle_local_position[2] - target_altitude) > 0.2 and not self._is_closed:
             pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-            pos_cmd.position = [self.start_north, self.start_east, -self.current_z_setpoint]
+            pos_cmd.position = [self.start_north, self.start_east, -target_altitude]
             self.publisher_trajectory.publish(pos_cmd)
             
-            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED:
+            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED or self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
                 self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
                 self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
             
@@ -315,6 +285,7 @@ class RealDroneEnv(gym.Env):
         hold_start = time.time()
         while (time.time() - hold_start) < 2.0:
             pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
+            pos_cmd.position = [self.start_north, self.start_east, -target_altitude]
             self.publisher_trajectory.publish(pos_cmd)
             time.sleep(self.dt)
               
@@ -369,6 +340,10 @@ class RealDroneEnv(gym.Env):
         target_east = self.target_pos[0] + delta_east
         target_north = self.target_pos[1] + delta_north
 
+        # Limit movement to 10x10 area centered at takeoff
+        target_east = np.clip(target_east, self.start_east - self.play_area_limit, self.start_east + self.play_area_limit)
+        target_north = np.clip(target_north, self.start_north - self.play_area_limit, self.start_north + self.play_area_limit)
+
         vel_cmd = TrajectorySetpoint()
         vel_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
         vel_cmd.position = [target_north, target_east, -target_up]
@@ -378,12 +353,6 @@ class RealDroneEnv(gym.Env):
         self.target_pos = np.array([target_east, target_north, target_up])
         self.last_action = action
         
-        # Check boundaries (10x10 area centered at start)
-        if (abs(self.pose.position.x - self.start_east) > self.play_area_limit or 
-            abs(self.pose.position.y - self.start_north) > self.play_area_limit):
-            self.done = True
-            self.node.get_logger().info("Out of bounds! Terminating episode.")
-
         time.sleep(0.05)
         
         heading_diff = self.goal_heading - self.trueYaw

@@ -206,36 +206,9 @@ class DroneGazeboEnv(gym.Env):
         self.publisher_vehicle_command.publish(msg)
 
     def land(self):
-        self.node.get_logger().info("Mission complete. Descending slowly before landing...")
-        
-        # Current height (Up is positive in ENU)
-        start_height = self.vehicle_local_position[2]
-        self.current_z_setpoint = start_height
-        current_descent_speed = 0.01 # Start slow
-        
-        # Ramp down to 10cm above ground
-        target_height = 0.1
-        while (self.current_z_setpoint > target_height) and not self._is_closed_env:
-            # Accelerate descent
-            if current_descent_speed < self.takeoff_speed:
-                current_descent_speed += self.takeoff_acceleration
-            
-            self.current_z_setpoint -= current_descent_speed
-            if self.current_z_setpoint < target_height:
-                self.current_z_setpoint = target_height
-            
-            # Create Setpoint (NED: Down is negative Z)
-            pos_cmd = TrajectorySetpoint()
-            pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-            pos_cmd.position = [self.vehicle_local_position[1], self.vehicle_local_position[0], -self.current_z_setpoint]
-            pos_cmd.yaw = self.locked_ned_yaw
-            self.publisher_trajectory.publish(pos_cmd)
-            
-            time.sleep(self.dt)
-            
-        # Final autonomous landing
+        self.node.get_logger().info("Mission complete. Sending land command.")
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-        self.node.get_logger().info("Final approach. Landing command sent.")
+        self.node.get_logger().info("Landing command sent.")
 
     def get_laser_scan(self, msg):
         if self.laser_done_cnt == 0:
@@ -450,43 +423,29 @@ class DroneGazeboEnv(gym.Env):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
         
-        # Position Command to take off straight up from current location
+        # Takeoff
+        target_altitude = 1.0
+        self.node.get_logger().info(f"Taking off to {target_altitude}m...")
+        
         pos_cmd = TrajectorySetpoint()
         pos_cmd.yaw = self.locked_ned_yaw
         
-        # Smooth Takeoff: Ramp altitude from 0 to 1.0m
-        target_altitude = 1.0
-        self.current_z_setpoint = 0.0
-        current_speed = 0.01 # Starting slow
-        
-        print(f"Starting smooth takeoff to {target_altitude}m...")
-        
-        # Loop until the ACTUAL altitude (from odometry) reaches the target
-        while self.vehicle_local_position[2] < (target_altitude - 0.1):
-            # Accelerate the setpoint
-            if current_speed < self.takeoff_speed:
-                current_speed += self.takeoff_acceleration
-            
-            self.current_z_setpoint += current_speed
-            if self.current_z_setpoint > target_altitude:
-                self.current_z_setpoint = target_altitude
-                
+        while abs(self.vehicle_local_position[2] - target_altitude) > 0.2 and not self._is_closed_env:
             pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-            # NED: Down is -Z
-            pos_cmd.position = [self.start_north, self.start_east, -self.current_z_setpoint]
+            pos_cmd.position = [self.start_north, self.start_east, -target_altitude]
             self.publisher_trajectory.publish(pos_cmd)
             
-            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED:
+            if self.arming_state != VehicleStatus.ARMING_STATE_ARMED or self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
                 self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
                 self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
             
             time.sleep(self.dt)
 
-        print("Altitude reached. Holding for stability (2s)...")
-        # Final stability hold
+        self.node.get_logger().info("Altitude reached. Holding for stability (2s)...")
         hold_start = time.time()
         while (time.time() - hold_start) < 2.0:
             pos_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
+            pos_cmd.position = [self.start_north, self.start_east, -target_altitude]
             self.publisher_trajectory.publish(pos_cmd)
             time.sleep(self.dt)
               
