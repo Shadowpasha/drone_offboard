@@ -138,6 +138,11 @@ class RealDroneEnv(gym.Env):
         self.dt = 0.05 
         self.play_area_limit = 5.0 # ±5m from start (10x10m area)
 
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+        self.origin_z = 0.0
+        self.origin_set = False
+
         # Visualizer Setup
         self.viz_queue = multiprocessing.Queue(maxsize=1)
         self.viz_proc = multiprocessing.Process(target=start_visualizer, args=(self.viz_queue,))
@@ -254,14 +259,33 @@ class RealDroneEnv(gym.Env):
         while (math.isnan(self.raw_ned_yaw) or not self.pos_received) and (time.time() - wait_start) < 10.0:
             time.sleep(0.1)
         
+        # Spin-wait until we have valid position data from PX4
+        while not self.pos_received and (time.time() - wait_start) < 10.0:
+            time.sleep(0.1)
+        
+        # Handle Offboard/Arm
+        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
+        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+        
+        # Wait for Arming and Offboard confirmation before sampling origin
+        self.node.get_logger().info("Waiting for Arming and Offboard confirmation...")
+        confirm_start = time.time()
+        while (time.time() - confirm_start) < 5.0:
+            if self.arming_state == VehicleStatus.ARMING_STATE_ARMED and self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+                break
+            time.sleep(0.1)
+
+        # Capture the drone's starting position and yaw as the local relative origin
         self.start_east = self.pose.position.x
         self.start_north = self.pose.position.y
         self.start_yaw = self.trueYaw
         self.locked_ned_yaw = self.raw_ned_yaw
         
-        # Handle Offboard/Arm
-        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
-        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+        self.origin_x = self.start_east
+        self.origin_y = self.start_north
+        self.origin_z = self.pose.position.z
+        self.origin_set = True
+        self.node.get_logger().info(f"Origin captured: [{self.origin_x:.2f}, {self.origin_y:.2f}, {self.origin_z:.2f}]")
         
         # Takeoff
         target_altitude = 1.0
@@ -288,12 +312,6 @@ class RealDroneEnv(gym.Env):
             pos_cmd.position = [self.start_north, self.start_east, -target_altitude]
             self.publisher_trajectory.publish(pos_cmd)
             time.sleep(self.dt)
-              
-        # Capture the actual stabilized position to base the goal on
-        self.start_east = self.pose.position.x
-        self.start_north = self.pose.position.y
-        self.start_yaw = self.trueYaw
-        self.locked_ned_yaw = self.raw_ned_yaw # Re-lock for consistency
         
         self.target_pos = np.array([self.start_east, self.start_north, 1.0]) 
         self.last_action = np.zeros(2)
@@ -327,8 +345,8 @@ class RealDroneEnv(gym.Env):
         truncated = False
 
         # Action scale matches training env (action[0]*0.05, action[1]*0.05)
-        move_fwd = float(action[0]) * 0.01
-        move_lat = float(action[1]) * 0.01
+        move_fwd = float(action[0]) * 0.02
+        move_lat = float(action[1]) * 0.02
         target_up = 1.0 
         
         # Standard ENU body->world rotation (matching train_env_disp_mem.py)

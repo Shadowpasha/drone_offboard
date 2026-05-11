@@ -175,6 +175,11 @@ class DroneGazeboEnv(gym.Env):
         self.current_z_setpoint = 0.0
         self.dt = 0.05 # Loop rate in reset/land
 
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+        self.origin_z = 0.0
+        self.origin_set = False
+
         # Visualization setup
         self.viz_queue = multiprocessing.Queue()
         self.viz_process = multiprocessing.Process(target=start_visualizer, args=(self.viz_queue,), daemon=True)
@@ -408,20 +413,33 @@ class DroneGazeboEnv(gym.Env):
         while not self.pos_received and (time.time() - wait_start) < 10.0:
             time.sleep(0.1)
         
-        # Capture the drone's current position and yaw as the local relative origin
-        self.start_east = self.pose.position.x
-        self.start_north = self.pose.position.y
-        self.start_yaw = self.trueYaw
-        
-        # Lock the NED yaw at this exact moment — this is what PX4 will hold
-        self.locked_ned_yaw = self.raw_ned_yaw
-        
-        print(f"DEBUG RESET: start_yaw(ENU)={math.degrees(self.start_yaw):.1f}deg, locked_ned_yaw={math.degrees(self.locked_ned_yaw):.1f}deg")
-        print(f"DEBUG RESET: start_pos=({self.start_east:.2f}, {self.start_north:.2f})")
+        # Spin-wait until we have valid position data from PX4
+        while not self.pos_received and (time.time() - wait_start) < 10.0:
+            time.sleep(0.1)
 
         # Handle Offboard/Arm/Takeoff
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+        
+        # Wait for Arming and Offboard confirmation before sampling origin
+        self.node.get_logger().info("Waiting for Arming and Offboard confirmation...")
+        confirm_start = time.time()
+        while (time.time() - confirm_start) < 5.0:
+            if self.arming_state == VehicleStatus.ARMING_STATE_ARMED and self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+                break
+            time.sleep(0.1)
+
+        # Capture the drone's starting position and yaw as the local relative origin
+        self.start_east = self.pose.position.x
+        self.start_north = self.pose.position.y
+        self.start_yaw = self.trueYaw
+        self.locked_ned_yaw = self.raw_ned_yaw
+        
+        self.origin_x = self.start_east
+        self.origin_y = self.start_north
+        self.origin_z = self.pose.position.z
+        self.origin_set = True
+        self.node.get_logger().info(f"Origin captured: [{self.origin_x:.2f}, {self.origin_y:.2f}, {self.origin_z:.2f}]")
         
         # Takeoff
         target_altitude = 1.0
@@ -451,13 +469,6 @@ class DroneGazeboEnv(gym.Env):
               
         print("Takeoff complete. Stabilizing...")
         time.sleep(1.0)
-
-        # Update start position and yaw to the actual stabilized values
-        # (Restoring this fix to ensure the goal is relative to current position)
-        self.start_east = self.pose.position.x
-        self.start_north = self.pose.position.y
-        self.start_yaw = self.trueYaw
-        self.locked_ned_yaw = self.raw_ned_yaw
 
         self.goal_reached = False
         self.overshoot = False
@@ -525,8 +536,8 @@ class DroneGazeboEnv(gym.Env):
 
         # Action scale matches training env: action[0]*0.05 = forward, action[1]*0.05 = lateral
         # Training env: dx = action[0]*0.05, dy = action[1]*0.05
-        move_fwd = float(action[0]) * 0.01
-        move_lat = float(action[1]) * 0.01
+        move_fwd = float(action[0]) * 0.02
+        move_lat = float(action[1]) * 0.02
 
         # Fixed altitude (ENU, positive up)
         target_up = 1.0

@@ -94,7 +94,7 @@ class SquareOffboardControl(Node):
         self.dt = timer_period
 
         self.declare_parameter('altitude', 1.0)
-        self.declare_parameter('speed', 0.1)
+        self.declare_parameter('speed', 0.3)
         self.declare_parameter('hold_duration', 5.0)
         self.declare_parameter('square_side', 2.0)
         
@@ -121,6 +121,11 @@ class SquareOffboardControl(Node):
         self.active_setpoint_x = 0.0
         self.active_setpoint_y = 0.0
         self.active_setpoint_z = 0.0
+
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+        self.origin_z = 0.0
+        self.origin_set = False
 
         # Waypoints
         self.waypoints = []
@@ -157,7 +162,7 @@ class SquareOffboardControl(Node):
         yaw = self.target_yaw
         cos_y = np.cos(yaw)
         sin_y = np.sin(yaw)
-        home = [self.current_pos_x, self.current_pos_y, self.current_pos_z - self.altitude]
+        home = [self.origin_x, self.origin_y, self.origin_z - self.altitude]
 
         wp1 = [home[0] + d * cos_y, home[1] + d * sin_y, home[2]]
         wp2 = [wp1[0] + d * np.sin(yaw), wp1[1] - d * np.cos(yaw), home[2]]
@@ -198,6 +203,32 @@ class SquareOffboardControl(Node):
             self.offboard_setpoint_counter += 1
 
         elif self.flight_state == "MISSION":
+            if not self.origin_set:
+                if self.arming_state == VehicleStatus.ARMING_STATE_ARMED and self.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+                    self.origin_x = self.current_pos_x
+                    self.origin_y = self.current_pos_y
+                    self.origin_z = self.current_pos_z
+                    self.origin_set = True
+                    self.calculate_waypoints()
+                    self.active_setpoint_x = self.current_pos_x
+                    self.active_setpoint_y = self.current_pos_y
+                    self.active_setpoint_z = self.current_pos_z
+                    self.get_logger().info(f"Origin captured: [{self.origin_x:.2f}, {self.origin_y:.2f}, {self.origin_z:.2f}]")
+                else:
+                    # Maintain current position setpoint until armed/offboard
+                    trajectory_msg = TrajectorySetpoint()
+                    trajectory_msg.position[0] = self.current_pos_x
+                    trajectory_msg.position[1] = self.current_pos_y
+                    trajectory_msg.position[2] = self.current_pos_z
+                    trajectory_msg.yaw = self.target_yaw
+                    self.publisher_trajectory.publish(trajectory_msg)
+
+                    if self.offboard_setpoint_counter % 10 == 0:
+                        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
+                        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
+                    self.offboard_setpoint_counter += 1
+                    return
+
             # Re-send Arm/Offboard commands if not in correct state
             if self.arming_state != VehicleStatus.ARMING_STATE_ARMED or self.nav_state != VehicleStatus.NAVIGATION_STATE_OFFBOARD:
                 if self.offboard_setpoint_counter % 10 == 0:
@@ -238,7 +269,7 @@ class SquareOffboardControl(Node):
 
             # Check if actual drone has reached the waypoint
             dist_actual = np.sqrt((self.current_pos_x - target_wp[0])**2 + (self.current_pos_y - target_wp[1])**2 + (self.current_pos_z - target_wp[2])**2)
-            if dist_actual < 0.2:
+            if dist_actual < 0.5:
                 if self.hold_timer_start is None:
                     self.hold_timer_start = self.get_clock().now().nanoseconds / 1e9
                 
@@ -257,17 +288,6 @@ class SquareOffboardControl(Node):
                 self.get_logger().info("Mission Complete.")
                 self.flight_state = "FINISHED"
 
-
-def main(args=None):
-    rclpy.init(args=args)
-    offboard_control = SquareOffboardControl()
-    rclpy.spin(offboard_control)
-    offboard_control.destroy_node()
-    rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
 
 
 def main(args=None):
