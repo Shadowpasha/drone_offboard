@@ -23,7 +23,10 @@ import os
 from px4_msgs.msg import VehicleOdometry, OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 from rclpy.clock import Clock
 import multiprocessing
-from .visualizer import start_visualizer
+try:
+    from .visualizer import start_visualizer
+except ImportError:
+    from visualizer import start_visualizer
 
 class RealDroneEnv(gym.Env):
     def __init__(self):
@@ -104,7 +107,8 @@ class RealDroneEnv(gym.Env):
 
         self.done = False
         self.action_space = spaces.Box(np.array([-1,-1]),np.array([1,1]),(2,),dtype= np.float64) 
-        self.observation_space = spaces.Box(-1.0, 1.0, shape=(134,), dtype= np.float64)
+        # Observation: 60 laser rays + 10 goal/state data = 70 (matches MuJoCo deployment env)
+        self.observation_space = spaces.Box(-8.0, 8.0, shape=(70,), dtype= np.float64)
         self.laser_done_cnt = 0
         
         self.executor = MultiThreadedExecutor()
@@ -115,7 +119,9 @@ class RealDroneEnv(gym.Env):
         self.et.start()
         
         self._is_closed = False
-        self.extracted_row = np.ones(128) * 12.0 # Initialize with max distance
+        # 60 laser rays matching MuJoCo env (normalized [0,1] by ray_range=12m)
+        self.extracted_row = np.ones(60) * 1.0 # Initialize with max normalized distance
+        self.raw_ranges = np.ones(1080) * 12.0 # Initialize high-res raw ranges
 
         self.vehicle_attitude = np.array([1.0, 0.0, 0.0, 0.0])
         self.vehicle_local_position = np.array([0.0, 0.0, 0.0])
@@ -177,33 +183,35 @@ class RealDroneEnv(gym.Env):
     def get_laser_scan(self, msg):
         self.laser_done_cnt += 1
         ranges = np.array(msg.ranges)
+        
         # 1. Clip and handle NaN/Inf — max range is 12m (matching training env)
         max_range = 12.0
         ranges = np.nan_to_num(ranges, nan=max_range, posinf=max_range, neginf=max_range)
         ranges[ranges == 0] = max_range
+        
+        # Save the high-res raw ranges AFTER cleaning up invalid noise, but BEFORE downsampling
+        self.raw_ranges = ranges.copy()
+        
         ranges = np.clip(ranges, 0.0, max_range)
         
-        # 2. Map 270° FOV into 360° virtual scan
-        # Model expects 128 bins over 360° (2.8125° per bin)
-        # SITL LiDAR has 270° FOV -> covers exactly 96 bins (270 / 2.8125)
-        virtual_scan_360 = np.ones(128) * max_range # Default to max range (blind spot)
+        # 2. Map 270° FOV into 360° virtual scan (60 bins, matching MuJoCo deployment env)
+        # Model expects 60 bins over 360° (6° per bin)
+        # Real LiDAR has 270° FOV -> covers 45 of the 60 bins (270/360 * 60 = 45)
+        virtual_scan_360 = np.ones(60) * max_range # Default to max range (blind spot = no obstacle)
         
-        # Downsample real 270° data to 96 bins
+        # Downsample real 270° data to 45 bins
         num_points = len(ranges)
         if num_points > 0:
-            # Interpolate the 1080 (or whatever) points into 96 bins
-            resampled_270 = np.interp(np.linspace(0, num_points, 96), np.arange(num_points), ranges)
+            # Interpolate the full-resolution scan into 45 bins covering 270°
+            resampled_270 = np.interp(np.linspace(0, num_points, 45), np.arange(num_points), ranges)
             
-            # Place resampled data into the virtual scan
-            # Center of 96 bins is index 48. We want this at index 64 (Forward)
-            # So the 96 bins go from index 64-48=16 to 64+48=112
-            virtual_scan_360[16:112] = resampled_270
+            # Place resampled data into the virtual 360 scan.
+            # Center of 45 bins is index 22. We want Forward (0°) at index 30 (half of 60).
+            # So the 45 bins go from index 30-22=8 to 8+45=53
+            virtual_scan_360[8:53] = resampled_270
 
-        # 3. Standard Normalization (Matches Training)
-        robot_radius = 0.5
-        min_ranges = virtual_scan_360
-        clearances = np.clip(min_ranges - robot_radius, 0.0, max_range)
-        self.extracted_row = clearances / max_range
+        # 3. Normalize by ray_range (matches MuJoCo _get_laser_ranges: dist / self.ray_range)
+        self.extracted_row = np.clip(virtual_scan_360 / max_range, 0.0, 1.0)
 
     def vehicle_odometry_callback(self, msg):
         # 1. Update position (ENU: msg.position[0]=North, msg.position[1]=East, msg.position[2]=Down)
@@ -326,14 +334,25 @@ class RealDroneEnv(gym.Env):
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
         dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
+        # Get velocity in body frame (ENU)
+        vx_body = self.vehicle_local_velocity[1] * math.cos(self.trueYaw) + self.vehicle_local_velocity[0] * math.sin(self.trueYaw)
+        vy_body = -self.vehicle_local_velocity[1] * math.sin(self.trueYaw) + self.vehicle_local_velocity[0] * math.cos(self.trueYaw)
+        
+        # 10-element goal data: matches MuJoCo _get_obs exactly
+        # [action[0], action[1], distance, heading_error, vx_body, vy_body, pos_x, pos_y, roll, pitch]
         self.goal_data = np.array([
             self.last_action[0], 
             self.last_action[1], 
-            self.distance / 14.14, 
-            heading_norm, 
-            dev_x_local / 10.0, 
-            dev_y_local / 10.0
+            self.distance,         # raw distance
+            heading_diff,          # heading error in radians [-pi, pi]
+            vx_body,               # body-frame forward velocity
+            vy_body,               # body-frame lateral velocity
+            self.pose.position.x,  # world position X
+            self.pose.position.y,  # world position Y
+            self.roll,             # roll angle
+            self.pitch,            # pitch angle
         ], dtype=np.float64)
+        # State dim = 60 (laser) + 10 (goal/state) = 70 (matches MuJoCo deployment env)
         state =  np.append(self.extracted_row, self.goal_data)
         
         self.done = False
@@ -382,19 +401,30 @@ class RealDroneEnv(gym.Env):
         dev_x_local = dx_global * math.cos(self.trueYaw) + dy_global * math.sin(self.trueYaw)
         dev_y_local = -dx_global * math.sin(self.trueYaw) + dy_global * math.cos(self.trueYaw)
 
+        # Get velocity in body frame (ENU)
+        vx_body = self.vehicle_local_velocity[1] * math.cos(self.trueYaw) + self.vehicle_local_velocity[0] * math.sin(self.trueYaw)
+        vy_body = -self.vehicle_local_velocity[1] * math.sin(self.trueYaw) + self.vehicle_local_velocity[0] * math.cos(self.trueYaw)
+        
+        # 10-element goal data: matches MuJoCo _get_obs exactly
+        # [action[0], action[1], distance, heading_error, vx_body, vy_body, pos_x, pos_y, roll, pitch]
         self.goal_data = np.array([
             self.last_action[0], 
             self.last_action[1], 
-            self.distance / 14.14, 
-            heading_norm, 
-            dev_x_local / 10.0, 
-            dev_y_local / 10.0
+            self.distance,         # raw distance
+            heading_diff,          # heading error in radians [-pi, pi]
+            vx_body,               # body-frame forward velocity
+            vy_body,               # body-frame lateral velocity
+            self.pose.position.x,  # world position X
+            self.pose.position.y,  # world position Y
+            self.roll,             # roll angle
+            self.pitch,            # pitch angle
         ], dtype=np.float64)
+        # State dim = 60 (laser) + 10 (goal/state) = 70 (matches MuJoCo deployment env)
         state =  np.append(self.extracted_row, self.goal_data)
 
-        # Update Visualizer
+        # Update Visualizer with kinematics
         if not self.viz_queue.full():
-            self.viz_queue.put((self.extracted_row, self.distance, heading_diff, action, dev_x_local, dev_y_local))
+            self.viz_queue.put((self.extracted_row, self.distance, heading_diff, dev_x_local, dev_y_local, action, vx_body, vy_body, self.pose.position.x, self.pose.position.y))
 
         if not self.done:
             # Progress toward goal (matches training env)
