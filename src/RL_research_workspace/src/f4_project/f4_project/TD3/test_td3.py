@@ -24,14 +24,12 @@ try:
     from . import TD3
     from . import TD3_Normal
     from . import TD3_PINN_Stable
-    from .train_env_disp_mem import DroneGazeboEnv
-    from .real_drone_env import RealDroneEnv
+    from .train_env_disp_mem import DroneGazeboEnv, RealDroneEnv
 except (ImportError, ValueError):
     import TD3
     import TD3_Normal
     import TD3_PINN_Stable
-    from train_env_disp_mem import DroneGazeboEnv
-    from real_drone_env import RealDroneEnv
+    from train_env_disp_mem import DroneGazeboEnv, RealDroneEnv
 
 gym.register(
     id='GazeboIrisEnv-v0',
@@ -40,7 +38,7 @@ gym.register(
 
 gym.register(
     id='RealIrisEnv-v0',
-    entry_point='f4_project.TD3.real_drone_env:RealDroneEnv', 
+    entry_point='f4_project.TD3.train_env_disp_mem:RealDroneEnv', 
 )
 
 def eval_policy(policy, env_name, seed, eval_episodes=10):
