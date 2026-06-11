@@ -7,28 +7,17 @@ _test_script_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 import numpy as np
-import torch
 import gymnasium as gym
 import argparse
 import os
 import time
 
-# Jetson Nano Optimization: Limit PyTorch threads to prevent CPU thrashing
-# especially in a ROS 2 environment with a lightweight model.
-torch.set_num_threads(1)
-
 # Add GLBATT directory to path
 sys.path.append(os.path.join(_test_script_dir, 'GLBATT'))
 
 try:
-    from . import TD3
-    from . import TD3_Normal
-    from . import TD3_PINN_Stable
     from .train_env_disp_mem import DroneGazeboEnv, RealDroneEnv
 except (ImportError, ValueError):
-    import TD3
-    import TD3_Normal
-    import TD3_PINN_Stable
     from train_env_disp_mem import DroneGazeboEnv, RealDroneEnv
 
 gym.register(
@@ -40,6 +29,29 @@ gym.register(
     id='RealIrisEnv-v0',
     entry_point='f4_project.TD3.train_env_disp_mem:RealDroneEnv', 
 )
+
+class ONNXPolicy:
+    def __init__(self, onnx_model_path):
+        import onnxruntime as ort
+        
+        # Optimize CPU threads for Jetson Nano / edge deployment
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        opts.inter_op_num_threads = 1
+        
+        self.session = ort.InferenceSession(onnx_model_path, sess_options=opts, providers=['CPUExecutionProvider'])
+        self.input_name = self.session.get_inputs()[0].name
+        
+    def select_action(self, state):
+        state_input = np.array(state, dtype=np.float32)
+        if len(state_input.shape) == 1:
+            state_input = state_input.reshape(1, -1)
+        elif len(state_input.shape) == 2:
+            state_input = state_input.reshape(1, state_input.shape[0], -1)
+            
+        outputs = self.session.run(None, {self.input_name: state_input})
+        return outputs[0].flatten()
+
 
 def eval_policy(policy, env_name, seed, eval_episodes=10):
     eval_env = gym.make(env_name)
@@ -70,7 +82,7 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--policy", default="GLBATT")
+    parser.add_argument("--policy", default="TD3_PINN_Stable")
     parser.add_argument("--env", default="GazeboIrisEnv-v0")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--load_model", default=None)  # Default depends on selected policy
@@ -79,8 +91,9 @@ def main():
     parser.add_argument("--no_model", action="store_true", help="Run without loading a model (random policy)")
     parser.add_argument("--goal_x", default=4.0, type=float, help="Local Forward offset")
     parser.add_argument("--goal_y", default=0.0, type=float, help="Local Left offset")
-    parser.add_argument("--random_goal", action="store_true", help="Use random goal instead of the specified fixed goal")
+    parser.add_argument("--random_goal", action="store_true", default=False,  help="Use random goal instead of the specified fixed goal")
     parser.add_argument("--real", action="store_true", default=False, help="Use real drone environment instead of simulation")
+    parser.add_argument("--onnx", action="store_true", default=True, help="Load the model as ONNX instead of PyTorch")
     
     args = parser.parse_args()
 
@@ -114,6 +127,7 @@ def main():
     
     print("---------------------------------------")
     print(f"Testing Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}, Model: {args.load_model}")
+    print(f"Backend: {'ONNX' if args.onnx else 'PyTorch'}")
     print("---------------------------------------")
 
     # if not os.path.exists("./models"):
@@ -133,38 +147,62 @@ def main():
         "max_action": max_action,
     }
 
-    if args.policy == "TD3":
-        policy = TD3.TD3(**kwargs)
-    elif args.policy == "TD3_Normal":
-        policy = TD3_Normal.TD3(**kwargs)
-    elif args.policy == "TD3_PINN_Stable":
-        policy = TD3_PINN_Stable.TD3_PINN_Stable(**kwargs)
-    elif args.policy in ["GLBATT", "TD3_GLBATT"]:
-        from glbatt.architectures import GLBATT_Summary as GLBATT_Lib
-        kwargs["belief_state_indices"] = list(range(60, 70))
-        policy = GLBATT_Lib.GLBATT(**kwargs)
+    if args.no_model:
+        # Dummy random policy wrapper
+        class RandomPolicy:
+            def select_action(self, state):
+                return env.action_space.sample()
+        policy = RandomPolicy()
+        print("Running without trained model (untrained random policy).")
+        
+    elif args.onnx:
+        # Load via ONNX Runtime
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(script_dir, "models", f"{args.load_model}_actor.onnx")
+        
+        if not os.path.exists(model_path):
+            print(f"Error: ONNX file not found at {model_path}")
+            print("Please export your PyTorch model to ONNX using export_to_onnx.py first.")
+            env.close()
+            exit(1)
+            
+        policy = ONNXPolicy(model_path)
+        print(f"Loaded ONNX model from {model_path}")
+        
     else:
-        print(f"Unknown policy: {args.policy}")
-        exit(1)
-    
-    if not args.no_model:
+        # Load via PyTorch
+        import torch
+        torch.set_num_threads(1)  # Thread limiting for Jetson Nano
+        
+        try:
+            from . import TD3, TD3_Normal, TD3_PINN_Stable
+        except (ImportError, ValueError):
+            import TD3, TD3_Normal, TD3_PINN_Stable
+            
+        if args.policy == "TD3":
+            policy = TD3.TD3(**kwargs)
+        elif args.policy == "TD3_Normal":
+            policy = TD3_Normal.TD3(**kwargs)
+        elif args.policy == "TD3_PINN_Stable":
+            policy = TD3_PINN_Stable.TD3_PINN_Stable(**kwargs)
+        elif args.policy in ["GLBATT", "TD3_GLBATT"]:
+            from glbatt.architectures import GLBATT_Summary as GLBATT_Lib
+            kwargs["belief_state_indices"] = list(range(60, 70))
+            policy = GLBATT_Lib.GLBATT(**kwargs)
+        else:
+            print(f"Unknown policy: {args.policy}")
+            env.close()
+            exit(1)
+            
         # Improved model path resolution for ROS 2 compatibility
-        # 1. Try local models/ directory (source run)
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, "models", args.load_model)
         
-        # 2. Try fmu/models if not found (development run)
-        if not os.path.exists(model_path + "_actor") and not os.path.exists(model_path + "_actor.zip"):
-             # Sometimes the install path looks like site-packages/f4_project/TD3/...
-             # find_spec or similar could be used but relative is often safer if setup.py is correct
-             pass 
-
         try:
             policy.load(model_path)
             print(f"Loaded model from {model_path}")
         except Exception as e:
             print(f"Error loading model from {model_path}: {e}")
-            # Final fallback: check current working directory's models folder
             cwd_model_path = os.path.join(os.getcwd(), "models", args.load_model)
             try:
                 policy.load(cwd_model_path)
@@ -173,8 +211,6 @@ def main():
                  print(f"Critical Error: Could not load model from any location. ({e2})")
                  env.close()
                  exit(1)
-    else:
-        print("Running without trained model (untrained policy).")
 
     try:
         for i in range(args.episodes):
