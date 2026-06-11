@@ -38,12 +38,19 @@ def find_gpu_load_node():
     for p in paths:
         if os.path.exists(p):
             return p
-    try:
-        matches = glob.glob("/sys/devices/platform/**/*.gpu/load", recursive=True)
-        if matches:
-            return matches[0]
-    except Exception:
-        pass
+    # Use non-recursive globs to avoid hanging on WSL/large sysfs trees
+    patterns = [
+        "/sys/devices/platform/*.gpu/load",
+        "/sys/devices/platform/bus@0/*.gpu/load",
+        "/sys/devices/*.gpu/load"
+    ]
+    for pattern in patterns:
+        try:
+            matches = glob.glob(pattern)
+            if matches:
+                return matches[0]
+        except Exception:
+            pass
     return None
 
 GPU_LOAD_NODE = find_gpu_load_node()

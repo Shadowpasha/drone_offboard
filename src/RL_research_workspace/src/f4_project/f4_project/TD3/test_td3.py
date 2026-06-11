@@ -293,9 +293,9 @@ def main():
     parser.add_argument("--goal_x", default=4.0, type=float, help="Local Forward offset")
     parser.add_argument("--goal_y", default=0.0, type=float, help="Local Left offset")
     parser.add_argument("--random_goal", action="store_true", default=False,  help="Use random goal instead of the specified fixed goal")
-    parser.add_argument("--real", action="store_true", default=True, help="Use real drone environment instead of simulation")
+    parser.add_argument("--real", action="store_true", default=False, help="Use real drone environment instead of simulation")
     parser.add_argument("--onnx", action="store_true", default=True, help="Load the model as ONNX instead of PyTorch")
-    parser.add_argument("--gpu", action="store_true", default=True, help="Run on GPU using TensorRT (requires --onnx)")
+    parser.add_argument("--gpu", action="store_true", default=False, help="Run on GPU using TensorRT (requires --onnx)")
     
     args = parser.parse_args()
 

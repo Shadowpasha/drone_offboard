@@ -422,7 +422,7 @@ class DroneEnv(gym.Env):
         ned_z_ground = -self.origin_z
         ned_z_target = ned_z_ground - target_altitude
         self.node.get_logger().info(f"Taking off to {target_altitude}m (NED Z target={ned_z_target:.2f}, origin_z={self.origin_z:.2f})...")
-        self.target_pos = np.array([self.start_east, self.start_north, target_altitude])
+        self.target_pos = np.array([self.start_east, self.start_north, self.origin_z + target_altitude])
         self.last_action = np.zeros(2)
 
         # Wait for the drone to reach takeoff altitude (cmdloop handles setpoint publishing)
@@ -506,15 +506,13 @@ class DroneEnv(gym.Env):
             target_east = np.clip(target_east, self.start_east - self.play_area_limit, self.start_east + self.play_area_limit)
             target_north = np.clip(target_north, self.start_north - self.play_area_limit, self.start_north + self.play_area_limit)
 
+        self.target_pos = np.array([target_east, target_north, self.origin_z + target_up])
+
         vel_cmd = TrajectorySetpoint()
         vel_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-        # NED Z must be relative to origin_z, matching the takeoff altitude computation
-        ned_z_target_step = (-self.origin_z) - target_up
-        vel_cmd.position = [target_north, target_east, ned_z_target_step]
+        vel_cmd.position = [target_north, target_east, -self.target_pos[2]]
         vel_cmd.yaw = self.locked_ned_yaw
         self.publisher_trajectory.publish(vel_cmd)
-        
-        self.target_pos = np.array([target_east, target_north, target_up])
         self.last_action = action
         
         time.sleep(0.05)
