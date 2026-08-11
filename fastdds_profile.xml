@@ -17,6 +17,8 @@
                 <builtin>
                     <readerPayloadSize>1024</readerPayloadSize>
                     <writerPayloadSize>1024</writerPayloadSize>
+                    <readerHistoryMemoryPolicy>PREALLOCATED_WITH_REALLOC</readerHistoryMemoryPolicy>
+                    <writerHistoryMemoryPolicy>PREALLOCATED_WITH_REALLOC</writerHistoryMemoryPolicy>
                 </builtin>
             </rtps>
         </participant>
@@ -33,10 +35,8 @@
 
     </profiles>
 
+    <!-- Silences all FastDDS internal library warnings and errors from spamming the console -->
     <log>
-        <use_stdout>false</use_stdout>
-        <consumer>
-            <class>StdoutConsumer</class>
-        </consumer>
+        <use_default>false</use_default>
     </log>
 </dds>

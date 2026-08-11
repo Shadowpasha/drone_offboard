@@ -4,7 +4,7 @@ import sys
 # ── Fix RTPS payload-too-small error (220 > 207 bytes) ──────────────────────
 # Set FastDDS profile BEFORE ANY rclpy/gym imports so the middleware uses the XML.
 _test_script_dir = os.path.dirname(os.path.abspath(__file__))
-
+os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = "/home/drone_f4/ros2_ws/src/drone_offboard/fastdds_profile.xml"
 
 import numpy as np
 import gymnasium as gym
@@ -254,7 +254,22 @@ class TensorRTPolicy:
 
 
 
-def eval_policy(policy, env_name, seed, eval_episodes=10):
+def process_real_lidar(state, scale=0.8, offset=0.0):
+    """
+    Inflate lidar readings (reduce reported distance) for safety in real environments.
+    Only processes readings that indicate an actual obstacle (< 0.999 normalized range).
+    """
+    modified_state = np.array(state, dtype=np.float64)
+    lidar_readings = modified_state[:60]
+    mask = lidar_readings < 0.999
+    
+    # Scale and apply offset
+    inflated = lidar_readings[mask] * scale - (offset / 12.0)
+    modified_state[:60][mask] = np.clip(inflated, 0.0, 1.0)
+    return modified_state
+
+
+def eval_policy(policy, env_name, seed, eval_episodes=10, no_obstacle_avoidance=False):
     eval_env = gym.make(env_name)
     # eval_env.seed(seed + 100)
     
@@ -264,7 +279,12 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
         done = False
         last_action = None
         while not done:
-            action = policy.select_action(np.array(state))
+            state_input = np.array(state)
+            if env_name == "RealIrisEnv-v0":
+                state_input = process_real_lidar(state_input, scale=0.8, offset=0.0)
+            if no_obstacle_avoidance:
+                state_input[:60] = 1.0
+            action = policy.select_action(state_input)
             
             # Apply low pass filter smoothing (a=0.3)
             if last_action is not None:
@@ -290,12 +310,15 @@ def main():
     parser.add_argument("--seq_len", default=50, type=int, help="Sequence window length for GLBATT")
     parser.add_argument("--episodes", default=1, type=int)
     parser.add_argument("--no_model", action="store_true", help="Run without loading a model (random policy)")
-    parser.add_argument("--goal_x", default=4.0, type=float, help="Local Forward offset")
+    parser.add_argument("--goal_x", default=8.0, type=float, help="Local Forward offset")
     parser.add_argument("--goal_y", default=0.0, type=float, help="Local Left offset")
     parser.add_argument("--random_goal", action="store_true", default=False,  help="Use random goal instead of the specified fixed goal")
-    parser.add_argument("--real", action="store_true", default=False, help="Use real drone environment instead of simulation")
+    parser.add_argument("--real", action="store_true", default=True, help="Use real drone environment instead of simulation")
     parser.add_argument("--onnx", action="store_true", default=True, help="Load the model as ONNX instead of PyTorch")
-    parser.add_argument("--gpu", action="store_true", default=False, help="Run on GPU using TensorRT (requires --onnx)")
+    parser.add_argument("--gpu", action="store_true", default=True, help="Run on GPU using TensorRT (requires --onnx)")
+    parser.add_argument("--lidar_scale", default=0.8, type=float, help="LiDAR range scaling factor for real environments (default: 0.8)")
+    parser.add_argument("--lidar_offset", default=0.0, type=float, help="LiDAR range subtraction offset in meters for real environments (default: 0.0)")
+    parser.add_argument("--no_obstacle_avoidance", action="store_true", default=True, help="Disable actual LiDAR values and assume no obstacles (set lidar values to 1.0)")
     
     args = parser.parse_args()
 
@@ -330,6 +353,8 @@ def main():
     print("---------------------------------------")
     print(f"Testing Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}, Model: {args.load_model}")
     print(f"Backend: {'ONNX' if args.onnx else 'PyTorch'}")
+    if args.no_obstacle_avoidance:
+        print("Obstacle Avoidance: DISABLED (LiDAR values set to 1.0)")
     print("---------------------------------------")
 
     # if not os.path.exists("./models"):
@@ -428,6 +453,10 @@ def main():
             print(f"Episode {i+1}/{args.episodes}")
             goal = None if args.random_goal else (args.goal_x, args.goal_y)
             state, info = env.reset(options={"goal_pos": goal})
+            if args.real:
+                state = process_real_lidar(state, scale=args.lidar_scale, offset=args.lidar_offset)
+            if args.no_obstacle_avoidance:
+                state[:60] = 1.0
             done = False
             episode_reward = 0
             last_action = None
@@ -437,32 +466,6 @@ def main():
                     state_seq[idx_seq] = state
 
             while not done:
-                # --- SAFETY CHECK ON HIGH-RES RAW LIDAR DATA ---
-                # Retrieve the raw, full-resolution lidar ranges stored directly from the ROS callback
-                raw_laser = getattr(env.unwrapped, 'raw_ranges', np.ones(1080) * 12.0)
-                
-                # Minimum safe distance: holybro frame (radius 0.25m) + 10" propellers (radius ~0.127m) + 0.2m = 0.577m
-                min_safe_dist = 0.25 + 0.127 + 0.2
-                
-                if np.min(raw_laser) < min_safe_dist:
-                    print(f"Failed navigation: Obstacle detected at {np.min(raw_laser):.3f}m (limit: {min_safe_dist:.3f}m) in raw lidar data.")
-                    print("Stopping immediately and landing...")
-                    # Send zero velocity to stop immediately
-                    try:
-                        env.step(np.array([0.0, 0.0]))
-                    except Exception:
-                        pass
-                        
-                    time.sleep(2.0)
-                    try:
-                        env.unwrapped.land()
-                        print("Landing command sent.")
-                    except AttributeError:
-                        print("Land method not found on unwrapped environment.")
-                        
-                    time.sleep(5.0)
-                    break
-                # ----------------------------------------------------
 
                 if args.policy in ["GLBATT", "TD3_GLBATT"]:
                     action = policy.select_action(state_seq)
@@ -475,6 +478,10 @@ def main():
                 last_action = action
                 
                 state, reward, done, truncated, info = env.step(action)
+                if args.real:
+                    state = process_real_lidar(state, scale=args.lidar_scale, offset=args.lidar_offset)
+                if args.no_obstacle_avoidance:
+                    state[:60] = 1.0
                 episode_reward += reward
                 # time.sleep(0.05) # Optional: slow down for visualization
 

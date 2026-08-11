@@ -167,15 +167,16 @@ class DroneEnv(gym.Env):
             self.goal_marker_spawned = False
 
         # Maintain offboard mode
-        self.timer = self.node.create_timer(0.05, self.cmdloop_callback)
+        self.timer = self.node.create_timer(0.04, self.cmdloop_callback)
         
         self.target_pos = np.zeros(3) # ENU target setpoint [East, North, Up]
+        self.lock = threading.Lock()
         self.last_action = np.zeros(2) 
         
         self.takeoff_speed = 0.1
         self.takeoff_acceleration = 0.01
         self.current_z_setpoint = 0.0
-        self.dt = 0.05 
+        self.dt = 0.04 
         
         if not self.sim:
             self.play_area_limit = 5.0 # ±5m from start (10x10m area)
@@ -183,6 +184,7 @@ class DroneEnv(gym.Env):
         self.origin_x = 0.0
         self.origin_y = 0.0
         self.origin_z = 0.0
+        self.origin_z_fixed = None
         self.origin_set = False
 
         # Visualizer Setup
@@ -236,11 +238,16 @@ class DroneEnv(gym.Env):
         else:
             # Normal operation: track target_pos (set by reset() after takeoff or step())
             if self.origin_set:
+                with self.lock:
+                    target_pos_copy = self.target_pos.copy()
                 traj_msg.position = [
-                    float(self.target_pos[1]),   # NED North
-                    float(self.target_pos[0]),   # NED East
-                    float(-self.target_pos[2]),  # NED Down
+                    float(target_pos_copy[1]),   # NED North
+                    float(target_pos_copy[0]),   # NED East
+                    float(-target_pos_copy[2]),  # NED Down
                 ]
+                # Set unused fields to NaN so PX4 ignores them (pure position control)
+                traj_msg.velocity = [float('nan'), float('nan'), float('nan')]
+                traj_msg.acceleration = [float('nan'), float('nan'), float('nan')]
                 if hasattr(self, 'locked_ned_yaw'):
                     traj_msg.yaw = self.locked_ned_yaw
                 self.publisher_trajectory.publish(traj_msg)
@@ -274,13 +281,6 @@ class DroneEnv(gym.Env):
         
         # Save the high-res raw ranges AFTER cleaning up invalid noise, but BEFORE downsampling
         self.raw_ranges = ranges.copy()
-        
-        # Emergency landing check (< 0.7m threshold)
-        if np.min(self.raw_ranges) < 0.7:
-            if not self.done:
-                self.node.get_logger().warn(f"Emergency stop: Lidar detected obstacle at {np.min(self.raw_ranges):.3f}m (< 0.7m)")
-                self.done = True
-                self.land()
         
         ranges = np.clip(ranges, 0.0, max_range)
         
@@ -394,8 +394,14 @@ class DroneEnv(gym.Env):
 
         self.origin_x = self.start_east
         self.origin_y = self.start_north
-        self.origin_z = self.pose.position.z
-        self.origin_set = True  # Now cmdloop will track target_pos
+        if self.sim:
+            if self.origin_z_fixed is None:
+                self.origin_z_fixed = self.pose.position.z
+            self.origin_z = self.origin_z_fixed
+        else:
+            self.origin_z = self.pose.position.z
+        # NOTE: origin_set is NOT set True here yet — it will be set after target_pos
+        # is primed with the takeoff altitude, to avoid cmdloop firing with target_pos=zeros.
         self.node.get_logger().info(f"Origin captured: [{self.origin_x:.2f}, {self.origin_y:.2f}, {self.origin_z:.2f}]")
 
         if self.sim:
@@ -417,12 +423,17 @@ class DroneEnv(gym.Env):
             self.node.get_logger().info(f"Goal set to: [{self.goal[0]:.2f}, {self.goal[1]:.2f}] (Relative offset: [{local_fwd:.2f}, {local_left:.2f}])")
 
         # --- Takeoff: set target_pos to 1m above origin; cmdloop will track it ---
-        target_altitude = 1.0
+        target_altitude = 1.7
         # NED Z = -(ENU Up origin_z) - altitude (more negative = higher in NED)
         ned_z_ground = -self.origin_z
         ned_z_target = ned_z_ground - target_altitude
         self.node.get_logger().info(f"Taking off to {target_altitude}m (NED Z target={ned_z_target:.2f}, origin_z={self.origin_z:.2f})...")
-        self.target_pos = np.array([self.start_east, self.start_north, self.origin_z + target_altitude])
+        # IMPORTANT: set target_pos BEFORE origin_set=True to avoid cmdloop
+        # firing in the window between origin_set=True and target_pos being assigned,
+        # which would send a ground-level setpoint ([0,0,0] NED) to PX4.
+        with self.lock:
+            self.target_pos = np.array([self.start_east, self.start_north, self.origin_z + target_altitude])
+        self.origin_set = True  # NOW cmdloop will begin tracking target_pos safely
         self.last_action = np.zeros(2)
 
         # Wait for the drone to reach takeoff altitude (cmdloop handles setpoint publishing)
@@ -488,34 +499,30 @@ class DroneEnv(gym.Env):
         reward = 0.0
         truncated = False
 
-        # Action scale matches train_env_disp_mem.py (action[0]*0.013, action[1]*0.005)
-        move_fwd = float(action[0]) * 0.013
-        move_lat = float(action[1]) * 0.005
-        target_up = 1.0 
+        # Action scale matches train_env_disp_mem.py (action[0]*0.00975, action[1]*0.00625)
+        move_fwd = float(action[0]) * 0.00975
+        move_lat = float(action[1]) * 0.00625
+        target_up = 1.7 
         
         # Standard ENU body->world rotation
         current_yaw = self.trueYaw
         delta_east  = move_fwd * math.cos(current_yaw) - move_lat * math.sin(current_yaw)
         delta_north = move_fwd * math.sin(current_yaw) + move_lat * math.cos(current_yaw)
 
-        target_east = self.target_pos[0] + delta_east
-        target_north = self.target_pos[1] + delta_north
+        with self.lock:
+            target_east = self.target_pos[0] + delta_east
+            target_north = self.target_pos[1] + delta_north
 
-        if not self.sim:
-            # Limit movement to 10x10 area centered at takeoff in real flight
-            target_east = np.clip(target_east, self.start_east - self.play_area_limit, self.start_east + self.play_area_limit)
-            target_north = np.clip(target_north, self.start_north - self.play_area_limit, self.start_north + self.play_area_limit)
+            if not self.sim:
+                # Limit movement to 10x10 area centered at takeoff in real flight
+                target_east = np.clip(target_east, self.start_east - self.play_area_limit, self.start_east + self.play_area_limit)
+                target_north = np.clip(target_north, self.start_north - self.play_area_limit, self.start_north + self.play_area_limit)
 
-        self.target_pos = np.array([target_east, target_north, self.origin_z + target_up])
+            self.target_pos = np.array([target_east, target_north, self.origin_z + target_up])
 
-        vel_cmd = TrajectorySetpoint()
-        vel_cmd.timestamp = int(self.node.get_clock().now().nanoseconds / 1000)
-        vel_cmd.position = [target_north, target_east, -self.target_pos[2]]
-        vel_cmd.yaw = self.locked_ned_yaw
-        self.publisher_trajectory.publish(vel_cmd)
         self.last_action = action
         
-        time.sleep(0.05)
+        time.sleep(0.04)
         
         heading_diff = self.goal_heading - self.trueYaw
         heading_diff = (heading_diff + math.pi) % (2 * math.pi) - math.pi
